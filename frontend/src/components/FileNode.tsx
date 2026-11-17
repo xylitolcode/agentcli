@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import type { DirState } from '../hooks/useFileTree'
+import { binaryKind } from '../lib/fileKind'
 import { formatSize } from '../lib/format'
 import type { FileEntry, FileMark } from '../types'
 import { FileIcon, FolderIcon } from './icons'
@@ -11,7 +12,7 @@ type Props = {
   dirs: Record<string, DirState>
   marks: Record<string, FileMark>
   onLoadDir: (path: string) => void
-  onOpenFile: (path: string) => void
+  onOpenFile: (path: string, size?: number | null) => void
   selectedPath: string | null
   onSelect: (path: string) => void
   showHidden: boolean
@@ -60,11 +61,13 @@ export function FileNode({
   const state = path ? dirs[path] : undefined
   const mark = path ? marks[path] : undefined
   const selected = path !== null && path === selectedPath
+  // 二进制文件点下去会被上层直接拦住（不出查看器），这里先把「点不开」标出来
+  const kind = isDir ? null : binaryKind(path ?? entry.name)
 
   function handleClick() {
     if (path) onSelect(path)
     if (!isDir) {
-      if (path) onOpenFile(path)
+      if (path) onOpenFile(path, entry.size)
       return
     }
     if (entry.blocked || !path) return
@@ -85,13 +88,15 @@ export function FileNode({
         title={
           entry.blocked
             ? '软链指向项目目录之外，不展开'
-            : mark?.git
-              ? `${entry.name}（git：${mark.git}）`
-              : mark?.write
-                ? `${entry.name}（agent 修改过）`
-                : mark?.read
-                  ? `${entry.name}（agent 读过）`
-                  : entry.name
+            : kind
+              ? `${entry.name}（${kind} · ${formatSize(entry.size)}，不支持文本预览）`
+              : mark?.git
+                ? `${entry.name}（git：${mark.git}）`
+                : mark?.write
+                  ? `${entry.name}（agent 修改过）`
+                  : mark?.read
+                    ? `${entry.name}（agent 读过）`
+                    : entry.name
         }
         style={{ paddingLeft: 8 + depth * 13 }}
         className={
@@ -124,7 +129,11 @@ export function FileNode({
           <span className={'shrink-0 text-[10px] ' + markClass(mark)}>{GIT_LABEL[mark.git] || 'M'}</span>
         )}
         {mark?.write && !mark.git && <span className="shrink-0 text-[10px] text-warn">M</span>}
-        {!isDir && <span className="shrink-0 pl-2 text-[11px] text-faint">{formatSize(entry.size)}</span>}
+        {!isDir && (
+          <span className="shrink-0 pl-2 text-[11px] text-faint">
+            {kind ?? formatSize(entry.size)}
+          </span>
+        )}
       </div>
 
       {isDir && open && path && (

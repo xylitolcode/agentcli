@@ -1,110 +1,104 @@
-import { useEffect, useState } from 'react'
-
 import type { Profile, SessionInfo } from '../types'
 import { RoomBar } from './RoomBar'
 
+/**
+ * 顶栏固定的三个 agent。顺序写死，不随项目偏好或探测结果浮动 —— 它们是
+ * 这个控制台的能力位，缺哪个就灰掉哪个，而不是悄悄消失。
+ */
+const PINNED_AGENTS = ['claude', 'codex', 'qwen'] as const
+
 type Props = {
   profiles: Profile[]
-  /** 初始选中项：项目偏好 agent 或全局默认 */
-  defaultProfile: string
+  /** 已有主面板的 profile（子会话不算）：用来把按钮标成「已开」，点一下是切过去 */
+  openProfiles: string[]
+  activeProfile: string
   outsourcing: boolean
   sessions: SessionInfo[]
   activeSid: string | null
   panelCount: number
   maxPanels: number
-  onSpawn: (profile: string, prompt: string) => void
+  onPickAgent: (profile: string) => void
+  onNewShell: () => void
   onToggleOutsourcing: () => void
   onOpenSession: (session: SessionInfo) => void
   onCloseAll: () => void
 }
 
 /**
- * 工作区顶栏：开会话 / 新终端 + 房间快照。
+ * 工作区顶栏：三个固定 agent 入口 + 新终端 + 房间快照。
  *
- * 真实 agent 默认进原生 TUI，可以空着开、首条消息可选；只有不支持交互的
- * adapter（测试桩）仍按「任务写进 argv」的一次性形态处理。shell 则是「新终端」。
+ * 早期版本这里是一排 profile 标签，P3 多面板时换成了「下拉 + 首条消息 + 派任务」
+ * 的表单，三个 agent 反而藏起来了。现在退回去：点 agent 按钮直接开一个交互会话，
+ * 空着开，进它自己的 TUI 再聊 —— 首条消息输入框没有存在价值。
  */
 export function WorkspaceBar({
   profiles,
-  defaultProfile,
+  openProfiles,
+  activeProfile,
   outsourcing,
   sessions,
   activeSid,
   panelCount,
   maxPanels,
-  onSpawn,
+  onPickAgent,
+  onNewShell,
   onToggleOutsourcing,
   onOpenSession,
   onCloseAll,
 }: Props) {
-  const [profile, setProfile] = useState(() =>
-    profiles.some((p) => p.name === defaultProfile) ? defaultProfile : (profiles[0]?.name ?? 'bash'),
-  )
-  const [prompt, setPrompt] = useState('')
-
-  // 换项目时项目偏好 agent 会变，跟着切默认 profile（用户明确选的也算一次重置）
-  useEffect(() => {
-    if (profiles.some((p) => p.name === defaultProfile)) setProfile(defaultProfile)
-  }, [defaultProfile, profiles])
-
-  const current = profiles.find((p) => p.name === profile)
-  const isAgent = current?.kind === 'agent'
-  // 原生交互会话可以空着开（进 TUI 再聊）；只有 headless（测试桩/自动化）必须有任务
-  const needsPrompt = isAgent && !current?.interactive
-  const trimmed = prompt.trim()
-  const canSubmit = panelCount < maxPanels && (!needsPrompt || trimmed.length > 0)
-
-  const submit = () => {
-    if (!canSubmit) return
-    onSpawn(profile, isAgent ? trimmed : '')
-    setPrompt('')
-  }
+  const byName = new Map(profiles.map((p) => [p.name, p]))
+  const shell = profiles.find((p) => p.kind === 'shell')
+  const full = panelCount >= maxPanels
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-line bg-panel px-2.5 py-1.5">
-      <select
-        value={profile}
-        onChange={(event) => setProfile(event.target.value)}
-        title={current?.path ?? ''}
-        className="rounded-[5px] border border-line bg-panel-2 px-1.5 py-[2px] text-[11px] text-fg outline-none focus:border-[#2a4a6b]"
-      >
-        {profiles.map((p) => (
-          <option key={p.name} value={p.name}>
-            {p.name}
-          </option>
-        ))}
-      </select>
+      <span className="mr-0.5 text-[10px] uppercase tracking-wide text-ghost">agent</span>
 
-      <input
-        value={prompt}
-        onChange={(event) => setPrompt(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submit()
-        }}
-        placeholder={
-          isAgent
-            ? current?.interactive
-              ? `给 ${profile} 的首条消息（可空，直接进交互；Ctrl+Enter 提交）`
-              : `给 ${profile} 派任务（必填，Ctrl+Enter 提交）`
-            : 'shell 不需要任务'
-        }
-        disabled={!isAgent}
-        className="min-w-[180px] flex-1 rounded-[5px] border border-line bg-panel-2 px-2 py-[3px] text-[11px] text-fg outline-none placeholder:text-ghost focus:border-[#2a4a6b] disabled:opacity-50"
-      />
+      {PINNED_AGENTS.map((name) => {
+        const profile = byName.get(name)
+        const open = openProfiles.includes(name)
+        const active = activeProfile === name
+        // 满了还能切到已开的面板；只有「新开」才被上限挡住
+        const disabled = !profile || (full && !open)
+        const title = !profile
+          ? `${name} 未安装（PATH 里找不到）`
+          : active
+            ? `${name} · 当前面板`
+            : open
+              ? `${name} · 已开，点一下切过去`
+              : full
+                ? `面板已满（上限 ${maxPanels}），先关掉几个`
+                : `${name} · 点一下开会话，进 TUI 再聊`
+
+        return (
+          <button
+            key={name}
+            disabled={disabled}
+            onClick={() => onPickAgent(name)}
+            title={title}
+            className={
+              'inline-flex items-center gap-1 rounded-[5px] border px-2 py-[3px] text-[11px] leading-4 transition-colors ' +
+              (active
+                ? 'border-accent bg-[#0e1a26] text-accent'
+                : open
+                  ? 'border-[#1f3a5c] text-fg hover:bg-line-soft'
+                  : 'border-line text-faint hover:bg-line-soft hover:text-fg') +
+              ' disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent'
+            }
+          >
+            {open && <i className="size-1 rounded-full bg-current opacity-70" />}
+            {name}
+          </button>
+        )
+      })}
 
       <button
-        onClick={submit}
-        disabled={!canSubmit}
-        title={
-          panelCount >= maxPanels
-            ? `面板已满（上限 ${maxPanels}），先关掉几个`
-            : needsPrompt && !trimmed
-              ? '这个 agent 只支持一次性任务，必须带任务才能起'
-              : undefined
-        }
-        className="rounded-[5px] border border-[#1f3a5c] bg-[#0e1a26] px-2 py-[3px] text-[11px] text-accent hover:border-accent disabled:cursor-not-allowed disabled:border-line disabled:bg-transparent disabled:text-faint"
+        onClick={onNewShell}
+        disabled={!shell || full}
+        title={!shell ? '没有可用的 shell' : full ? `面板已满（上限 ${maxPanels}）` : '开一个系统终端'}
+        className="rounded-[5px] border border-line px-2 py-[3px] text-[11px] text-dim hover:bg-line-soft hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {isAgent ? (current?.interactive ? '开会话' : '派任务') : '新终端'}
+        + 终端
       </button>
 
       <span className="ml-auto flex flex-wrap items-center gap-1.5">

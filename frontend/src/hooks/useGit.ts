@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { fetchJson } from '../lib/api'
 
 import type { GitSnapshot } from '../types'
 
@@ -17,10 +18,14 @@ export function useGit(projectId: string) {
     setError('')
     try {
       const params = new URLSearchParams({ project: projectId })
-      const resp = await fetch(`/api/git/?${params}`)
-      const payload = (await resp.json()) as GitSnapshot
-      if (!resp.ok || !payload.ok) {
-        setError(payload.error || `HTTP ${resp.status}`)
+      const result = await fetchJson<GitSnapshot>(`/api/git/?${params}`)
+      const payload = result.data
+      if (!result.ok || !payload) {
+        setError(result.error || `HTTP ${result.status}`)
+        return
+      }
+      if (!payload.ok) {
+        setError(payload.error || '读取失败')
         return
       }
       setGit(payload)

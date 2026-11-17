@@ -30,11 +30,14 @@ type Props = {
   loading: boolean
   error: string
   onRefresh: () => void
-  onOpenFile: (path: string) => void
+  /** 点工作区文件 = 打开只读 diff，不直接看全文 */
+  onOpenDiff: (file: GitFile) => void
+  /** 目录树收起时由 Git 区顶满右列，避免右列只剩一条之后下方留白 */
+  fill?: boolean
 }
 
 /** Git 只读区：分支、工作区状态、最近提交。没有任何 add/commit 操作。 */
-export function GitPane({ git, loading, error, onRefresh, onOpenFile }: Props) {
+export function GitPane({ git, loading, error, onRefresh, onOpenDiff, fill = false }: Props) {
   const [open, setOpen] = useState(true)
   const files = git?.repo ? git.files : []
   const commits = git?.repo ? git.commits : []
@@ -45,8 +48,14 @@ export function GitPane({ git, loading, error, onRefresh, onOpenFile }: Props) {
   return (
     <aside
       className={
-        'flex min-h-0 shrink-0 flex-col overflow-hidden rounded-[10px] border border-line bg-panel ' +
-        (open ? 'h-[38%] min-h-[120px] max-h-[320px]' : '')
+        'flex min-h-0 flex-col overflow-hidden rounded-[10px] border border-line bg-panel ' +
+        (fill
+          ? open
+            ? 'min-h-[120px] flex-1'
+            : 'shrink-0'
+          : open
+            ? 'h-[38%] min-h-[120px] max-h-[320px] shrink-0'
+            : 'shrink-0')
       }
       aria-label="Git 只读区"
     >
@@ -105,10 +114,10 @@ export function GitPane({ git, loading, error, onRefresh, onOpenFile }: Props) {
                 {files.map((file) => (
                   <button
                     key={(file.from ? `${file.from}→` : '') + file.path}
-                    onClick={() => file.kind !== 'deleted' && onOpenFile(file.path)}
+                    onClick={() => onOpenDiff(file)}
                     title={
                       file.kind === 'deleted'
-                        ? `${file.path}（已删除，无法预览）`
+                        ? `${file.path}（已删除，可查看被删内容）`
                         : file.from
                           ? `${file.from} → ${file.path}`
                           : file.path

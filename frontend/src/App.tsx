@@ -2,10 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 
 import { CodeViewer } from './components/CodeViewer'
+import { DiffViewer } from './components/DiffViewer'
+import type { DiffMode } from './components/DiffViewer'
 import { FileTreePane } from './components/FileTreePane'
 import { GitPane } from './components/GitPane'
 import { Header } from './components/Header'
 import { ProjectPicker } from './components/ProjectPicker'
+import { SearchPane } from './components/SearchPane'
 import { SessionPanel } from './components/SessionPanel'
 import type { SessionHandle } from './components/SessionPanel'
 import { Splitter } from './components/Splitter'
@@ -14,13 +17,15 @@ import { WorkspaceBar } from './components/WorkspaceBar'
 import { useFileTree } from './hooks/useFileTree'
 import { useGit } from './hooks/useGit'
 import { useRoom } from './hooks/useRoom'
-import { shellQuote } from './lib/format'
+import { binaryKind } from './lib/fileKind'
+import { formatSize, shellQuote } from './lib/format'
 import { isFontInstalled } from './lib/terminal'
 import type {
   Bootstrap,
   ConnStatus,
   ControlMessage,
   FileMark,
+  GitFile,
   Project,
   RenderMode,
   SessionInfo,
@@ -56,6 +61,11 @@ type PanelStat = {
   rows: number
   renderMode: RenderMode
 }
+
+/** 覆盖层目标：目录树点文件看全文，Git 区点文件看 diff */
+type ViewTarget =
+  | { kind: 'file'; path: string; line?: number }
+  | { kind: 'diff'; path: string; mode: DiffMode }
 
 let panelSeq = 0
 const nextPanelKey = () => `panel-${(panelSeq += 1)}`
@@ -145,7 +155,12 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
   )
   const [showHidden, setShowHidden] = useState(false)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
-  const [viewPath, setViewPath] = useState<string | null>(null)
+  const [view, setView] = useState<ViewTarget | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+
+  /** 点了不该点的东西（比如 png）时的短提示，几秒后自己消失 */
+  const [notice, setNotice] = useState<{ id: number; text: string } | null>(null)
+  const noticeSeq = useRef(0)
 
   /**
    * 多面板：初始还原「上一个布局」（只含主面板）。
@@ -231,17 +246,11 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
     [bootstrap.projects, projectId],
   )
 
-  // 新面板默认用项目偏好 agent；真实 agent 进原生 TUI，可空着开
+  // 系统壳 profile：新终端、换项目时的初始面板、路径插入兜底都指着它
   const shellProfile = useMemo(
     () => bootstrap.profiles.find((p) => p.kind === 'shell') ?? bootstrap.profiles[0],
     [bootstrap.profiles],
   )
-  const spawnDefault = useMemo(() => {
-    if (project?.agent && bootstrap.profiles.some((p) => p.name === project.agent)) {
-      return project.agent
-    }
-    return bootstrap.defaultProfile
-  }, [bootstrap.defaultProfile, bootstrap.profiles, project])
 
   useEffect(() => {
     if (projectId) void load('')
@@ -396,6 +405,23 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
     [addPanel, panels],
   )
 
+  /** 顶栏固定 agent：已有主面板就切过去，没有才开一个空会话进 TUI。 */
+  const pickAgent = useCallback(
+    (profile: string) => {
+      const existing = panels.find((panel) => panel.profile === profile && !panel.meta)
+      if (existing) {
+        setActiveKey(existing.key)
+        return
+      }
+      addPanel(profile, '')
+    },
+    [addPanel, panels],
+  )
+
+  const newShell = useCallback(() => {
+    addPanel(shellProfile?.name ?? bootstrap.defaultProfile, '')
+  }, [addPanel, bootstrap.defaultProfile, shellProfile])
+
   /* ---------------- 交互 ---------------- */
 
   const enterProject = useCallback(
@@ -425,10 +451,49 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
     })
   }, [])
 
-  // 目录树点文件 = 只读预览，不再直接把路径塞进终端；要送路径走查看器里的按钮
-  const handleOpenFile = useCallback((path: string) => {
-    setSelectedPath(path)
-    setViewPath(path)
+  const pushNotice = useCallback((text: string) => {
+    noticeSeq.current += 1
+    setNotice({ id: noticeSeq.current, text })
+  }, [])
+
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(null), 3400)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
+  // 目录树点文件 = 只读预览，不再直接把路径塞进终端；要送路径走查看器里的按钮。
+  // 二进制文件先按后缀拦下来：让用户等一次 /api/file 再告诉他不支持，纯属白等。
+  const handleOpenFile = useCallback(
+    (path: string, size?: number | null, focusLine?: number) => {
+      const kind = binaryKind(path)
+      if (kind) {
+        const bytes = typeof size === 'number' ? ` · ${formatSize(size)}` : ''
+        pushNotice(`${path}（${kind}${bytes}）不支持文本预览`)
+        return
+      }
+      setSelectedPath(path)
+      setView({ kind: 'file', path, line: focusLine })
+    },
+    [pushNotice],
+  )
+
+  // Git 区点工作区文件 = 只看差异。默认给合并视图（vs HEAD），暂存/未暂存在里面切
+  // Ctrl/Cmd+Shift+F 开搜索。用 window 捕获而不是面板级，好在任何焦点下都能唤起
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'f') {
+        event.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const handleOpenDiff = useCallback((file: GitFile) => {
+    setSelectedPath(file.path)
+    setView({ kind: 'diff', path: file.path, mode: 'worktree' })
   }, [])
 
   const handleInsertPath = useCallback(
@@ -447,7 +512,7 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
   )
 
   useEffect(() => {
-    setViewPath(null)
+    setView(null)
   }, [projectId])
 
   useEffect(() => {
@@ -464,7 +529,7 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
   }, [])
 
   const workspaceStyle = {
-    '--tree-w': treeCollapsed ? '34px' : `${treeWidth}px`,
+    '--tree-w': `${treeWidth}px`,
   } as CSSProperties
 
   if (!projectId) {
@@ -489,25 +554,27 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
 
   return (
     <div className="flex h-full flex-col">
-      <Header label={project ? `${project.name} · ${project.path}` : bootstrap.rootPath} />
+      <Header
+        label={project ? `${project.name} · ${project.path}` : bootstrap.rootPath}
+        onSearch={() => setSearchOpen(true)}
+      />
 
       <main
-        className={
-          'workspace min-h-0 flex-1 px-3.5 pb-2.5 pt-3 ' +
-          (treeCollapsed ? 'workspace-tree-collapsed' : '')
-        }
+        className="workspace min-h-0 flex-1 px-3.5 pb-2.5 pt-3"
         style={workspaceStyle}
       >
         <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[10px] border border-line bg-panel">
           <WorkspaceBar
             profiles={bootstrap.profiles}
-            defaultProfile={activePanel?.profile ?? spawnDefault}
+            openProfiles={panels.filter((panel) => !panel.meta).map((panel) => panel.profile)}
+            activeProfile={activePanel?.profile ?? ''}
             outsourcing={outsourcing}
             sessions={sessions}
             activeSid={activePanel?.sid ?? null}
             panelCount={panels.length}
             maxPanels={MAX_PANELS}
-            onSpawn={addPanel}
+            onPickAgent={pickAgent}
+            onNewShell={newShell}
             onToggleOutsourcing={toggleOutsourcing}
             onOpenSession={openSession}
             onCloseAll={closeAll}
@@ -515,7 +582,7 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
 
           {panels.length === 0 ? (
             <div className="flex flex-1 items-center justify-center px-4 text-xs text-faint">
-              没有打开的会话 · 上面选个 profile，点「派任务 / 新终端」
+              没有打开的会话 · 上面点个 agent 按钮直接开
             </div>
           ) : (
             <div className="panel-grid min-h-0 flex-1 p-2" data-cols={columns}>
@@ -575,63 +642,74 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
           )}
         </section>
 
-        {treeCollapsed ? (
-          <>
-            <div className="splitter opacity-0" />
-            <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[10px] border border-line bg-panel">
-              <button
-                onClick={() => setTreeCollapsed(false)}
-                title="展开项目目录"
-                className="flex h-full w-full flex-col items-center gap-2 pt-3 text-dim hover:bg-line-soft hover:text-fg"
-              >
-                <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor"
-                  strokeWidth="1.4" aria-hidden="true">
-                  <path d="M7.5 3L4.5 6L7.5 9" />
-                </svg>
-                <span className="text-[10px] tracking-[2px]" style={{ writingMode: 'vertical-rl' }}>
-                  项目目录
-                </span>
-              </button>
-            </aside>
-          </>
-        ) : (
-          <>
-            <Splitter onDrag={handleDrag} onDragEnd={() => undefined} />
-            <div className="flex min-h-0 min-w-0 flex-col gap-2.5">
-              <FileTreePane
-                dirs={dirs}
-                marks={treeMarks}
-                onLoadDir={load}
-                onRefresh={refreshTreeAndGit}
-                onOpenFile={handleOpenFile}
-                showHidden={showHidden}
-                onToggleHidden={() => setShowHidden((v) => !v)}
-                selectedPath={selectedPath}
-                onSelect={setSelectedPath}
-                onCollapse={() => setTreeCollapsed(true)}
-              />
-              <GitPane
-                git={git}
-                loading={gitLoading}
-                error={gitError}
-                onRefresh={() => void refreshGit()}
-                onOpenFile={handleOpenFile}
-              />
-            </div>
-          </>
-        )}
+        <Splitter onDrag={handleDrag} onDragEnd={() => undefined} />
+        <div className="flex min-h-0 min-w-0 flex-col gap-2.5">
+          <FileTreePane
+            dirs={dirs}
+            marks={treeMarks}
+            onLoadDir={load}
+            onRefresh={refreshTreeAndGit}
+            onOpenFile={handleOpenFile}
+            showHidden={showHidden}
+            onToggleHidden={() => setShowHidden((v) => !v)}
+            selectedPath={selectedPath}
+            onSelect={setSelectedPath}
+            collapsed={treeCollapsed}
+            onCollapse={() => setTreeCollapsed((value) => !value)}
+          />
+          <GitPane
+            git={git}
+            loading={gitLoading}
+            error={gitError}
+            fill={treeCollapsed}
+            onRefresh={() => void refreshGit()}
+            onOpenDiff={handleOpenDiff}
+          />
+        </div>
       </main>
 
-      {viewPath && (
+      {view?.kind === 'file' && (
         <CodeViewer
-          path={viewPath}
+          path={view.path}
           projectId={projectId}
-          onClose={() => setViewPath(null)}
+          focusLine={view.line}
+          onClose={() => setView(null)}
           onInsert={(path) => {
             handleInsertPath(path)
-            setViewPath(null)
+            setView(null)
           }}
         />
+      )}
+
+      {searchOpen && (
+        <SearchPane
+          projectId={projectId}
+          projectName={project?.name ?? bootstrap.rootName}
+          onClose={() => setSearchOpen(false)}
+          onOpen={(path, line) => {
+            setSearchOpen(false)
+            handleOpenFile(path, null, line)
+          }}
+        />
+      )}
+
+      {view?.kind === 'diff' && (
+        <DiffViewer
+          path={view.path}
+          projectId={projectId}
+          mode={view.mode}
+          onClose={() => setView(null)}
+          onOpenFile={handleOpenFile}
+          onInsert={(path) => {
+            handleInsertPath(path)
+            setView(null)
+          }}
+        />
+      )}
+      {notice && (
+        <div key={notice.id} className="notice" role="status">
+          {notice.text}
+        </div>
       )}
 
       <StatusBar

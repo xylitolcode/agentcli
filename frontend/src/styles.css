@@ -64,11 +64,6 @@
     grid-template-columns: minmax(0, 1fr) 7px var(--tree-w, 330px);
   }
 
-  /* 目录收起后只留一条竖栏，不再保留拖拽区 */
-  .workspace.workspace-tree-collapsed {
-    grid-template-columns: minmax(0, 1fr) 0 34px;
-  }
-
   .splitter {
     position: relative;
     cursor: col-resize;
@@ -145,10 +140,6 @@
       grid-template-rows: minmax(0, 1.4fr) 6px minmax(0, 1fr);
     }
 
-    .workspace.workspace-tree-collapsed {
-      grid-template-rows: minmax(0, 1fr) 0 34px;
-    }
-
     .splitter {
       cursor: row-resize;
     }
@@ -161,5 +152,216 @@
       width: auto;
       height: 1px;
     }
+  }
+
+  /* 右下角短提示：二进制文件被拦这类「点了但没打开」的反馈。零圆角，跟终端一致。 */
+  .notice {
+    position: fixed;
+    right: 18px;
+    bottom: 46px;
+    z-index: 60;
+    max-width: min(440px, calc(100vw - 36px));
+    border: 1px solid var(--color-line);
+    border-left: 2px solid var(--color-warn);
+    background: var(--color-panel-2);
+    color: var(--color-fg);
+    font-size: 11.5px;
+    line-height: 1.65;
+    padding: 6px 10px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+    animation: notice-in 120ms ease-out;
+  }
+
+  @keyframes notice-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* Markdown 渲染态。等宽 + 1px 线 + 零圆角：看着还像终端，不是网页文章。 */
+  .md-body {
+    max-width: 980px;
+    padding: 14px 18px 40px;
+    font-size: 12.5px;
+    line-height: 1.72;
+    color: var(--color-fg);
+  }
+
+  .md-body > :first-child {
+    margin-top: 0;
+  }
+
+  .md-body h1,
+  .md-body h2,
+  .md-body h3,
+  .md-body h4,
+  .md-body h5,
+  .md-body h6 {
+    margin: 1.5em 0 0.6em;
+    font-weight: 600;
+    line-height: 1.35;
+    color: #e6edf3;
+  }
+
+  .md-body h1 {
+    font-size: 1.5em;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--color-line);
+  }
+
+  .md-body h2 {
+    font-size: 1.26em;
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--color-line-soft);
+  }
+
+  .md-body h3 {
+    font-size: 1.12em;
+  }
+
+  .md-body h4,
+  .md-body h5,
+  .md-body h6 {
+    font-size: 1em;
+    color: var(--color-dim);
+  }
+
+  .md-body p {
+    margin: 0.72em 0;
+  }
+
+  .md-body a {
+    color: var(--color-accent);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(88, 166, 255, 0.35);
+  }
+
+  .md-body a:hover {
+    border-bottom-color: var(--color-accent);
+  }
+
+  .md-body strong {
+    color: #e6edf3;
+    font-weight: 600;
+  }
+
+  .md-body em {
+    color: #d7e0ea;
+  }
+
+  .md-body ul,
+  .md-body ol {
+    margin: 0.7em 0;
+    padding-left: 1.6em;
+  }
+
+  .md-body li {
+    margin: 0.28em 0;
+  }
+
+  .md-body li::marker {
+    color: var(--color-faint);
+  }
+
+  .md-body li > input[type='checkbox'] {
+    margin-right: 5px;
+    vertical-align: middle;
+    accent-color: var(--color-accent);
+  }
+
+  .md-body blockquote {
+    margin: 0.9em 0;
+    padding: 2px 0 2px 12px;
+    border-left: 2px solid var(--color-line);
+    color: var(--color-dim);
+  }
+
+  .md-body blockquote > :first-child {
+    margin-top: 0;
+  }
+
+  .md-body blockquote > :last-child {
+    margin-bottom: 0;
+  }
+
+  .md-body hr {
+    margin: 1.6em 0;
+    border: 0;
+    border-top: 1px solid var(--color-line);
+  }
+
+  /* 行内码：一块补丁似的底，不做圆角 */
+  .md-body code {
+    font-family: var(--font-mono);
+    font-size: 0.94em;
+    padding: 0 3px;
+    background: var(--color-line-soft);
+    border: 1px solid var(--color-line);
+    border-radius: 0;
+  }
+
+  .md-body .md-pre {
+    margin: 0.9em 0;
+    padding: 0;
+    background: #080c11;
+    border: 1px solid var(--color-line);
+    overflow-x: auto;
+    border-radius: 0;
+  }
+
+  .md-body .md-pre code {
+    display: block;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.55;
+    background: transparent;
+    border: 0;
+  }
+
+  .md-body table {
+    display: block;
+    margin: 0.9em 0;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .md-body th,
+  .md-body td {
+    padding: 4px 9px;
+    border: 1px solid var(--color-line);
+    text-align: left;
+  }
+
+  .md-body th {
+    background: var(--color-panel-2);
+    color: #e6edf3;
+    font-weight: 600;
+  }
+
+  .md-body tbody tr:nth-child(even) td {
+    background: rgba(22, 27, 34, 0.55);
+  }
+
+  .md-body .md-img {
+    display: block;
+    max-width: 100%;
+    margin: 0.6em 0;
+    border: 1px solid var(--color-line);
+  }
+
+  /* Markdown 里的相对图片路径没法在预览里加载，标出来而不是摆个破图标 */
+  .md-body .md-img-missing {
+    display: inline-block;
+    padding: 1px 6px;
+    border: 1px dashed var(--color-line);
+    color: var(--color-faint);
+    font-size: 11px;
   }
 }

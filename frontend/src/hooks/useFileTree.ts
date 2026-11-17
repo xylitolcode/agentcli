@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
+import { fetchJson } from '../lib/api'
 
 import type { DirListing, FileEntry } from '../types'
 
@@ -25,10 +26,11 @@ export function useFileTree(projectId: string) {
     if (projectRef.current) params.set('project', projectRef.current)
 
     try {
-      const res = await fetch(`/api/files/?${params}`, { headers: { Accept: 'application/json' } })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const result = await fetchJson<DirListing>(`/api/files/?${params}`)
+      if (!result.ok || !result.data) throw new Error(result.error || `HTTP ${result.status}`)
 
-      const data = (await res.json()) as DirListing
+      const data = result.data
+      if (!data.ok) throw new Error('目录列表读取失败')
       setDirs((prev) => ({
         ...prev,
         [path]: { status: 'ready', entries: data.entries, truncated: data.truncated },

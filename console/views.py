@@ -13,7 +13,19 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
-from . import agent, bridge, delegation, files, gitview, projects, sessions, terminal, vite
+from . import (
+    agent,
+    bridge,
+    delegation,
+    diffview,
+    files,
+    gitview,
+    projects,
+    search,
+    sessions,
+    terminal,
+    vite,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +117,58 @@ async def git_api(request):
         return JsonResponse({"ok": False, "error": f"git 读取失败：{exc}"}, status=500)
     payload["ok"] = True
     return JsonResponse(payload)
+
+
+async def diff_api(request):
+    """单文件 diff：工作区 / 暂存区 / 未暂存，结构化成 hunk 供前端跳转导航。
+
+    只读；路径越界仍由 ``files.resolve`` 挡住，mode 由后端白名单校验。
+    """
+    if request.method != "GET":
+        return JsonResponse({"ok": False, "error": "只接受 GET"}, status=405)
+    rel = request.GET.get("path", "")
+    project_id = request.GET.get("project", "") or None
+    mode = request.GET.get("mode", "worktree")
+    if not rel:
+        return JsonResponse({"ok": False, "error": "path 不能为空"}, status=400)
+    if mode not in diffview.MODES:
+        return JsonResponse({"ok": False, "error": "mode 只接受 worktree/staged/unstaged"}, status=400)
+    try:
+        payload = await sync_to_async(diffview.file_diff)(rel, project_id, mode)
+    except files.PathOutsideRoot:
+        return JsonResponse({"ok": False, "error": "路径越界，拒绝访问"}, status=403)
+    except files.PathNotFound:
+        return JsonResponse({"ok": False, "error": "文件不存在或不可读"}, status=404)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return JsonResponse({"ok": False, "error": f"git diff 失败：{exc}"}, status=500)
+    payload["ok"] = True
+    return JsonResponse(payload)
+
+
+def search_api(request):
+    """工作区搜索：文件名 + 内容。
+
+    只读、幂等，参数全走 query string：``q`` 关键词、``project`` 项目 id、
+    ``mode`` = ``content`` | ``file``。
+
+    错误语义和别的接口对齐：越界 403、参数不合法 400、搜索本身炸了 500。
+    "没搜到"永远不是错误 —— 那是 200 + 空列表，前端据此显示"无匹配"。
+    """
+    query = request.GET.get("q", "")
+    project = request.GET.get("project") or None
+    mode = request.GET.get("mode", "content")
+
+    try:
+        payload = search.search(query, project_id=project, mode=mode)
+    except ValueError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    except files.PathOutsideRoot:
+        return JsonResponse({"ok": False, "error": "路径越界，拒绝访问"}, status=403)
+    except search.SearchError as exc:
+        logger.warning("search failed: %s", exc)
+        return JsonResponse({"ok": False, "error": str(exc)}, status=500)
+
+    return JsonResponse({"ok": True, **payload})
 
 
 def projects_list(request):

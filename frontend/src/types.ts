@@ -56,6 +56,39 @@ export type FileContent = {
   error?: string
 }
 
+/** 搜索命中行；spans 是命中的列区间（相对 text），前端据此上色 */
+export type SearchHit = {
+  path: string
+  line: number
+  col: number
+  text: string
+  spans: [number, number][]
+}
+
+export type SearchGroup = {
+  path: string
+  count: number
+  hits: SearchHit[]
+}
+
+export type SearchFile = {
+  path: string
+  name: string
+}
+
+/** /api/search/ 的响应体；mode 决定 groups 与 files 哪个有值 */
+export type SearchResult = {
+  ok: boolean
+  query: string
+  mode: 'content' | 'file' | string
+  root: string
+  groups?: SearchGroup[]
+  files?: SearchFile[]
+  total: number
+  truncated: boolean
+  error?: string
+}
+
 /** agent 动过的文件：读过标蓝，写过标黄；git 状态由 git 快照补充 */
 export type FileMark = {
   read: boolean
@@ -92,6 +125,39 @@ export type GitSnapshot = {
   files: GitFile[]
   commits: GitCommit[]
   truncated?: boolean
+  error?: string
+}
+
+/** diff 行：t=空格是上下文，- 是删除，+ 是新增；old/new 是各自侧的行号 */
+export type DiffLine = {
+  t: ' ' | '-' | '+'
+  text: string
+  old?: number
+  new?: number
+}
+
+export type DiffHunk = {
+  oldStart: number
+  oldLines: number
+  newStart: number
+  newLines: number
+  /** @@ 后面的函数上下文，可能为空 */
+  header: string
+  lines: DiffLine[]
+}
+
+/** 单文件 diff；hunks 为空且 empty=true 表示当前模式没有差异 */
+export type FileDiff = {
+  ok: boolean
+  path: string
+  mode: 'worktree' | 'staged' | 'unstaged' | string
+  kind?: string
+  repo: boolean
+  binary: boolean
+  truncated: boolean
+  empty: boolean
+  hunks: DiffHunk[]
+  stats: { add: number; del: number }
   error?: string
 }
 
