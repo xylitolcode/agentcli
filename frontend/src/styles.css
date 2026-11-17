@@ -176,6 +176,98 @@
   }
 
   /* 面板网格：gap 直接填线色，1px 就是分隔线。没有卡片、没有间距。 */
+  /*
+   * 空态：一颗缓慢呼吸的神经核心。3D 由 R3F 铺满这块区域，CSS 这层只负责
+   * 光晕和地基 —— 一圈渐变光晕比真 bloom 便宜得多，也不用再引后处理管线。
+   */
+  .stage-core {
+    position: relative;
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: radial-gradient(
+      ellipse 60% 50% at 50% 44%,
+      rgba(110, 243, 200, 0.06),
+      transparent 70%
+    );
+  }
+
+  .core-halo {
+    position: absolute;
+    width: min(38vh, 300px);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: radial-gradient(
+      circle,
+      rgba(110, 243, 200, 0.085),
+      rgba(110, 243, 200, 0.024) 42%,
+      transparent 68%
+    );
+    pointer-events: none;
+    animation: core-breathe 7s ease-in-out infinite;
+  }
+
+  @keyframes core-breathe {
+    0%,
+    100% {
+      opacity: 0.72;
+      transform: scale(0.96);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.04);
+    }
+  }
+
+  /* 降级态：没有 WebGL2 或系统开了「减少动画」时，用同心圆代替点云 */
+  .core-static {
+    position: relative;
+    width: min(46vh, 340px);
+    aspect-ratio: 1;
+    pointer-events: none;
+  }
+
+  .core-static i {
+    position: absolute;
+    border: 1px solid rgba(110, 243, 200, 0.1);
+    border-radius: 50%;
+  }
+
+  .core-static i:nth-child(1) {
+    inset: 0;
+  }
+
+  .core-static i:nth-child(2) {
+    inset: 15%;
+  }
+
+  .core-static i:nth-child(3) {
+    inset: 30%;
+    border-color: rgba(110, 243, 200, 0.18);
+  }
+
+  .core-static b {
+    position: absolute;
+    inset: 43%;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(110, 243, 200, 0.62), rgba(110, 243, 200, 0.1));
+  }
+
+  .core-hint {
+    position: absolute;
+    bottom: 14%;
+    left: 50%;
+    margin: 0;
+    transform: translateX(-50%);
+    color: var(--color-faint);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
   .panel-grid {
     display: grid;
     gap: 1px;
@@ -281,6 +373,10 @@
 
   @media (prefers-reduced-motion: reduce) {
     .pulse-dot {
+      animation: none;
+      opacity: 0.9;
+    }
+    .core-halo {
       animation: none;
       opacity: 0.9;
     }

@@ -14,6 +14,7 @@ import { SearchPane } from './components/SearchPane'
 import { SessionPanel } from './components/SessionPanel'
 import type { SessionHandle } from './components/SessionPanel'
 import { Splitter } from './components/Splitter'
+import { StageCore } from './components/StageCore'
 import { WorkspaceBar } from './components/WorkspaceBar'
 import { useFileTree } from './hooks/useFileTree'
 import { useGit } from './hooks/useGit'
@@ -595,9 +596,7 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
           />
 
           {panels.length === 0 ? (
-            <div className="flex flex-1 items-center justify-center px-4 text-xs text-faint">
-              没有打开的会话 · 左侧 rail 点一个 agent 直接开
-            </div>
+            <StageCore />
           ) : (
             <div className="panel-grid min-h-0 flex-1" data-cols={columns}>
               {panels.map((panel) => {

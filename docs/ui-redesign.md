@@ -179,3 +179,19 @@ WebAudio 合成的连接音/完成音，一次 80ms，默认关，开关放 HUD 
 1. **强调色**：磷光青 `#6ef3c8`（推荐，最像仪器）／ 琥珀 `#ffb454`（更暖、更复古）／ 保留 GitHub 蓝（最安全但最没身份）。
 2. **3D 范围**：只做空态（推荐，成本可控）／ 空态 + 背景场 ／ 完全不引 3D（只用 CSS+Motion）。
 3. **多会话形态**：rail 频道切换（推荐）／ 频道 + 可选 tmux 分屏 ／ 保留现在的卡片网格。
+
+## 11. 实施记录（滚动更新）
+
+| 阶段 | 提交 | 落地情况与偏差 |
+|---|---|---|
+| P0 | `2643bb7` | 按计划落地；`StatusBar` 并入 HUD 后删除 |
+| P1 | `b7552f7` | 按计划落地；`motion` 带来约 160 kB |
+| P2 | 本轮 | **只用 `three` + `@react-three/fiber`**，未引 `drei`，未引 `postprocessing` |
+
+P2 的三处主动偏差，原因如下：
+
+1. **bloom 换成 sprite 径向渐变**。`postprocessing` 的 `EffectComposer` 在 `alpha: true` 的透明 canvas 上清屏会带出黑底，且要多一条后处理管线。改为：中心"源点"用 `CanvasTexture` 径向渐变 sprite + 加法混合，外圈柔光用 CSS `.core-halo`，视觉近似、成本几乎为零。`@react-three/postprocessing` 已从依赖里移除。
+2. **three 走动态 import 独立成 chunk**（`StageCore3D-*.js`，约 923 kB / gzip 245 kB）。只在空态才下载，有会话的路径完全不受影响；开面板时组件卸载，WebGL 上下文随之释放（红线 1）。
+3. **限帧与暂停**：`frameloop="demand"` + 33 ms 定时器 `invalidate()`（约 30fps），`document.hidden` 时跳过点名，`visibilitychange` 恢复后补一帧。不用满帧 rAF。
+
+降级链路有三层：无 WebGL2 或 `hardwareConcurrency < 4` → CSS 同心圆；`prefers-reduced-motion: reduce` → 同一套 CSS 同心圆；两者都通过时才挂 3D。截图见 `docs/ui/p2-stage-3d.png`、`docs/ui/p2-stage-static.png`。
