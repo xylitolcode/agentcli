@@ -43,10 +43,13 @@ agentcli/
 必须用 uvicorn —— `runserver` 只跑 WSGI 那半边，WebSocket 连不上。
 
 ```bash
-cd ~/projects/agentcli
-source .venv/bin/activate
+git clone https://github.com/xylitolcode/agentcli.git
+cd agentcli
 
-# 第一次或前端有改动时
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# 前端产物不入库，克隆后必须构建一次
 cd frontend && npm install && npm run build && cd ..
 
 uvicorn agentcli.asgi:application --port 8010 --reload
@@ -205,6 +208,8 @@ agent 会话的帧协议刻意做得很薄：
 - 现在只绑 `127.0.0.1`，`DEBUG=True`，`ALLOWED_HOSTS` 只有本机
 - **不要**在加鉴权之前暴露到公网
 - 真要暴露，至少：Django auth 做会话校验 + `CONSOLE_ROOT` 收窄 + shell 套容器
+- `SECRET_KEY` 从环境变量 `DJANGO_SECRET_KEY` 读，源码里的只是本地占位值 —
+  对外部署必须设，否则会话签名是公开可伪造的
 
 ## 后续要做的
 
