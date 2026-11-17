@@ -15,6 +15,9 @@ import urllib.error
 import urllib.request
 
 PROTOCOL = "2024-11-05"
+DEFAULT_TIMEOUT = 120
+MIN_TIMEOUT = 5
+MAX_TIMEOUT = 300
 
 TOOL = {
     "name": "delegate_task",
@@ -58,16 +61,37 @@ def _reply(mid, result=None, error=None) -> None:
     _send(msg)
 
 
+def _tool_error(text: str) -> dict:
+    return {"content": [{"type": "text", "text": text}], "isError": True}
+
+
+def _timeout_seconds(value) -> int:
+    """MCP 参数来自模型，可能是字符串/小数/缺省；统一夹到控制面的区间。"""
+    try:
+        seconds = int(float(value))
+    except (TypeError, ValueError):
+        seconds = DEFAULT_TIMEOUT
+    return max(MIN_TIMEOUT, min(seconds, MAX_TIMEOUT))
+
+
 def _delegate(args: dict) -> dict:
     url = os.environ.get("AGENTCLI_URL", "").rstrip("/") + "/api/delegate/"
     token = os.environ.get("AGENTCLI_TOKEN", "")
     sid = PARENT_SID
+    target = str(args.get("target") or "").strip()
+    prompt = str(args.get("prompt") or "").strip()
+    timeout = _timeout_seconds(args.get("timeout_seconds"))
+
+    if not target or not prompt:
+        return _tool_error("外包失败：target 与 prompt 都不能为空")
+    if not os.environ.get("AGENTCLI_URL"):
+        return _tool_error("外包失败：缺少 AGENTCLI_URL（控制台注入环境变量后重开会话）")
 
     body = json.dumps({
         "sid": sid,
-        "target": args.get("target") or "",
-        "prompt": args.get("prompt") or "",
-        "timeout": int(args.get("timeout_seconds") or 120),
+        "target": target,
+        "prompt": prompt,
+        "timeout": timeout,
     }).encode()
 
     req = urllib.request.Request(
@@ -75,21 +99,23 @@ def _delegate(args: dict) -> dict:
         headers={"Content-Type": "application/json", "X-Agentcli-Token": token},
     )
     try:
-        with urllib.request.urlopen(req, timeout=float(args.get("timeout_seconds") or 120) + 15) as resp:
+        with urllib.request.urlopen(req, timeout=float(timeout) + 15) as resp:
             data = json.loads(resp.read().decode())
     except urllib.error.HTTPError as exc:
         try:
             data = json.loads(exc.read().decode())
         except Exception:
             data = {"ok": False, "error": f"控制面返回 HTTP {exc.code}"}
-    except Exception as exc:
-        return {"content": [{"type": "text", "text": f"调用控制面失败：{exc}"}], "isError": True}
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return _tool_error(f"外包失败：控制台不可达（{exc}）")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _tool_error("外包失败：控制面返回的不是合法 JSON")
 
-    if not data.get("ok"):
-        text = f"外包失败：{data.get('error') or '未知原因'}"
-        return {"content": [{"type": "text", "text": text}], "isError": True}
+    if not isinstance(data, dict) or not data.get("ok"):
+        detail = data.get("error") if isinstance(data, dict) else ""
+        return _tool_error(f"外包失败：{detail or '未知原因'}")
 
-    reply = data.get("reply") or ""
+    reply = str(data.get("reply") or "")
     meta = f"[{data.get('profile') or 'agent'} · {data.get('child_sid') or ''} · {data.get('delegation_id') or ''}]"
     text = f"外包完成 {meta}\n{reply}" if reply else f"外包完成，但对方没有返回文本 {meta}"
     return {"content": [{"type": "text", "text": text}], "isError": False}
@@ -99,6 +125,9 @@ def _handle(msg: dict) -> None:
     method = msg.get("method")
     mid = msg.get("id")
     if mid is None:  # 通知帧，不需要回应
+        return
+    if not isinstance(method, str):
+        _reply(mid, error={"code": -32600, "message": "invalid request: method 缺失"})
         return
 
     if method == "initialize":
@@ -111,11 +140,18 @@ def _handle(msg: dict) -> None:
         _reply(mid, {"tools": [TOOL]})
     elif method == "tools/call":
         params = msg.get("params") or {}
+        if not isinstance(params, dict):
+            _reply(mid, error={"code": -32602, "message": "invalid params"})
+            return
         name = params.get("name")
         if name != "delegate_task":
-            _reply(mid, {"content": [{"type": "text", "text": f"未知工具：{name}"}], "isError": True})
+            _reply(mid, _tool_error(f"未知工具：{name}"))
             return
-        _reply(mid, _delegate(params.get("arguments") or {}))
+        args = params.get("arguments") or {}
+        if not isinstance(args, dict):
+            _reply(mid, _tool_error("外包失败：arguments 必须是对象"))
+            return
+        _reply(mid, _delegate(args))
     elif method == "ping":
         _reply(mid, {})
     else:
@@ -139,7 +175,12 @@ def main() -> None:
         except json.JSONDecodeError:
             continue
         if isinstance(msg, dict):
-            _handle(msg)
+            try:
+                _handle(msg)
+            except Exception as exc:  # 单条请求失败不能带崩 stdio 循环
+                mid = msg.get("id")
+                if mid is not None:
+                    _reply(mid, error={"code": -32603, "message": f"internal error: {exc}"})
 
 
 if __name__ == "__main__":

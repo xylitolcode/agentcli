@@ -205,7 +205,10 @@ scripts/
   `initialize` / `tools/list`（一个 `delegate_task`，target/prompt/timeout_seconds）/
   `tools/call` / `ping`，未知方法回 -32601。`tools/call` 走
   `POST /api/delegate/`，把 `ok/reply/error/delegation_id/child_sid/profile` 转成
-  MCP content text。
+  MCP content text。**参数先在本进程校验**（target/prompt 非空、timeout 夹到
+  5..300s），控制面 403/502 统一转 `isError: true` 的明确文本；单条坏请求由
+  `main()` 兜住，stdio 循环不崩。桩测 `scripts/check_mcp.py` 覆盖初始化、工具列表、
+  正常回执、空参数、403、未知工具/方法、缺 method 与 ping，不烧真实额度。
 - **`/api/delegate/`**：校验 POST + `X-Agentcli-Token`；父会话 `outsourcing=False`
   回 403「外包模式未开启」；调用 `delegation.dispatch(..., profile=父的 profile)`，
   `wait_task()` 等 done/failed 后回填。`wait_task` 轮询 pending/running，
@@ -229,6 +232,10 @@ scripts/
 - **三 agent 外包实测**：claude / codex / qwen 均成功调用 `delegate_task` 到 stub 子槽，
   回执分别 `leaf-ok:mcp-ok` / `leaf-ok:codex-mcp` / `leaf-ok:qwen-mcp`；codex 首次
   需过原生信任页并对 MCP 工具做一次原生审批，qwen 因预放行直接执行。
+- **MCP 硬化后复测**：直接跑 `scripts/mcp_delegate.py` 对 8013 调
+  `delegate_task(target=stub, prompt=leaf:mcp-polish)`，回执
+  `外包完成 [stub · 8462087856594d33 · 8c9880e2a253] leaf-ok:mcp-polish`，
+  协议层桩测 `scripts/check_mcp.py` 全绿。
 
 ### 3.7 M2 身份映射 + 续会话 + 外包默认（claude 已接）
 

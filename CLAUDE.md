@@ -21,6 +21,7 @@ python scripts/smoke.py                     # HTTP 冒烟（页面/命令接口/
 python scripts/check_terminal.py            # WS->PTY 端到端（echo/tty/cd/Ctrl-C/ANSI/宽字符）
 python scripts/check_session.py             # 会话保持：断线重连同进程、同 tty、历史回放
 python scripts/check_delegation.py          # 委派链路：常驻子槽/a→b→c/忙锁（headless）/交互态直通（桩测）
+python scripts/check_mcp.py                 # MCP stdio 协议：初始化/工具列表/参数校验/403/超时夹取（桩测）
 python scripts/probe_delegation.py          # 人工验收：真实 claude 当子槽（消耗少量真实额度）
 python manage.py check
 python manage.py test console.tests.<类>.<方法>
@@ -157,6 +158,9 @@ python manage.py test console.tests.<类>.<方法>
   `wait_task()` 等 done/failed，把 `reply` 作为 tool result 返回。claude/qwen 用
   `--allowedTools` 预放行 `mcp__agentcli__delegate_task`，避免卡在外包工具的权限弹窗
   （其它工具仍原生确认）。codex 无 allowedTools 等价开关，走原生 MCP 审批。
+  MCP 侧先校验 `target/prompt` 非空，`timeout_seconds` 夹到 5..300，控制面 403/502
+  统一转成 `isError: true` 的文本；单条坏请求由 `main()` 兜住，不会带崩 stdio 循环。
+  `scripts/check_mcp.py` 是纯桩测（本地假 HTTP 端点），不烧真实 agent 额度。
   `TOKEN`/`BASE_URL` 是进程内单例，多 worker 会失效；只适合本机单用户。
 - **身份映射与续会话（M2）**：控制台 sid 是主身份，`Runtime.agent_sid` 存 CLI 自己
   的 session id，`Runtime.resumable` 标记能否续。新交互会话由 `_spawn` 生成 UUID →

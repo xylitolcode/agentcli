@@ -83,6 +83,7 @@ python scripts/smoke.py            # 页面、CSRF、命令接口、目录树、
 python scripts/check_terminal.py   # 真终端：echo / tty / cd / Ctrl-C / ANSI / 宽字符
 python scripts/check_session.py    # 会话保持：断开重连，同进程、同 tty、历史回放
 python scripts/check_delegation.py # 委派链路：常驻子槽、a→b→c、忙锁、槽复用（桩测）
+python scripts/check_mcp.py        # MCP stdio：初始化、工具列表、参数校验、403、超时夹取（桩测）
 python scripts/probe_delegation.py # 人工验收：真实 claude 当子槽（消耗少量额度）
 ```
 
