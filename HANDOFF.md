@@ -171,6 +171,8 @@ scripts/
   `pendingWrites`，`term.open` 后补写，短命会话不会留下空面板。
 - **文件联动 / 外包回执 / 忙锁拒绝**：仍是每个面板就地写终端（蓝/黄标色走全局
   `fileMarks`，回执与 `input-rejected` 写在发起面板里）。
+- **形态标注**：`usePty` 从 `session` 帧取 `mode`，agent 面板头显示「交互 / 无头」
+  小标签（shell 不显示），悬停有说明；接回旧会话时随首帧自动恢复。
 - **布局持久化**：主面板的 profile/sid/prompt 与 activeSid 落 localStorage，刷新
   或重开项目按原样还原；URL 带一个布局里没有的 sid（分享链接）时只单开它。子会话
   面板是观察窗，不持久化。

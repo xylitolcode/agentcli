@@ -498,6 +498,7 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
                     key={panel.key}
                     panelKey={panel.key}
                     profile={panel.profile}
+                    kind={prof?.kind === 'shell' ? 'shell' : 'agent'}
                     projectId={projectId}
                     initialSid={panel.initialSid}
                     prompt={panel.prompt}

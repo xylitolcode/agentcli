@@ -26,6 +26,8 @@ export type PtyApi = {
   status: ConnStatus
   /** 当前会话 id（服务端下发，可能为 null） */
   sid: string | null
+  /** 会话形态：interactive 原生 TUI / headless 一次性任务；未知时为空串 */
+  mode: string
   send: (data: Uint8Array<ArrayBuffer>) => void
   sendControl: (payload: Record<string, unknown>) => void
   resize: (cols: number, rows: number) => void
@@ -54,6 +56,7 @@ export function usePty({
 }: PtyOptions): PtyApi {
   const [status, setStatus] = useState<ConnStatus>('connecting')
   const [sid, setSid] = useState<string | null>(initialSid || null)
+  const [mode, setMode] = useState('')
 
   const socketRef = useRef<WebSocket | null>(null)
   const retryRef = useRef<number | undefined>(undefined)
@@ -133,6 +136,7 @@ export function usePty({
       if (message.type === 'session' && message.sid) {
         sidRef.current = message.sid
         setSid(message.sid)
+        if (message.mode) setMode(message.mode)
       }
       handlersRef.current.onControl(message)
     }
@@ -194,5 +198,5 @@ export function usePty({
     }
   }, [openSocket, profile, projectId])
 
-  return { status, sid, send, sendControl, resize, reconnect: openSocket }
+  return { status, sid, mode, send, sendControl, resize, reconnect: openSocket }
 }

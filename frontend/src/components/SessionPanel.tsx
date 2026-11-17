@@ -19,6 +19,8 @@ type Props = {
   /** 面板身份，和 sid 无关：新开会话时还没有 sid */
   panelKey: string
   profile: string
+  /** shell 不显示形态标记；agent 才标「交互 / 无头」 */
+  kind?: 'shell' | 'agent'
   projectId: string
   /** 接回已有会话；空则新开 */
   initialSid?: string
@@ -79,6 +81,7 @@ const dim = (text: string) => `\r\n\x1b[38;5;244m${text}\x1b[0m\r\n`
 export function SessionPanel({
   panelKey,
   profile,
+  kind = 'agent',
   projectId,
   initialSid = '',
   prompt = '',
@@ -260,6 +263,14 @@ export function SessionPanel({
         {subtitle && (
           <span className="min-w-0 truncate text-[10.5px] text-faint" title={subtitle}>
             {subtitle}
+          </span>
+        )}
+        {kind === 'agent' && pty.mode && (
+          <span
+            className="shrink-0 rounded border border-line px-1 text-[9.5px] leading-4 text-faint"
+            title={pty.mode === 'interactive' ? '原生 TUI，多轮对话归 CLI' : '一次性任务，跑完即退'}
+          >
+            {pty.mode === 'interactive' ? '交互' : '无头'}
           </span>
         )}
 
