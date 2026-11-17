@@ -37,7 +37,15 @@ console/
     stub.py      测试桩适配器（不调模型，只解析桩输出）
     registry.py  profile -> Adapter 注册表
     shell.py     bash 直通适配器
-  templates/console/index.html  前端（内联 JS）
+  templates/console/index.html  Vite 挂载壳（#root + json_script 注入 bootstrap，17 行）
+frontend/          React 19 + TS + Vite 8 + xterm 6 前端（构建到 static/dist/）
+  src/App.tsx      唯一状态编排处：项目、多面板、文件标记、布局
+  src/components/  SessionPanel（一会话一终端）/ WorkspaceBar（派任务+房间条）/
+                   RoomBar / FileTreePane / Splitter / Header / StatusBar
+  src/hooks/       usePty（一条 WS = 一个前台进程）/ useRoom / useFileTree
+  src/lib/         terminal（xterm 构造）/ format
+static/dist/       Vite 产物（manifest + 带 hash 的 js/css）
+console/vite.py    读 .vite/manifest.json，给模板注入带 hash 的资源名
 scripts/
   check_session.py  会话保持回归（8 项）
   check_terminal.py  终端/目录回归（8 项）
@@ -54,9 +62,13 @@ scripts/
 ### 3.1 会话保持（已完成）
 - 会话挂在注册表 `sid -> Session` 上，不挂连接；断连只摘观察者，进程继续跑。
 - 带 `sid` 重连回放环形缓冲（`REPLAY_LIMIT=256KB`）再接管实时流。
-- 进程退出进 `dead`，留 `DEAD_TTL=30s` 回看；空闲 `IDLE_TTL=300s` 回收，
-  扫描周期 `SWEEP_INTERVAL=30s`。
-- profile/sid/project 写 URL query，localStorage 兜底；重连先清本地画面防重叠。
+- 进程退出进 `dead`，留 `DEAD_TTL=30s` 回看；**带常驻子槽的父会话放宽到
+  `DEAD_TTL_WITH_CHILDREN=300s`**（否则级联清子槽，子面板没得看）；空闲
+  `IDLE_TTL=300s` 回收，扫描周期 `SWEEP_INTERVAL=30s`。
+- **URL/localStorage 只记主面板**：多面板布局不持久化，地址栏跟最近活动过的
+  主会话（`prompt` 建会话后即从 query 删除）；子会话面板是临时观察窗。刷新回来
+  落到那个主会话。`localStorage` 兜底时连 profile 一起比对，防止跨 profile
+  接错 sid。
 
 ### 3.2 项目体系（已完成）
 - `Project` 模型（name/path/agent/enabled/note）；总目录 `~/projects`，进来先选
@@ -113,12 +125,28 @@ scripts/
   depth/pinned/delegation/busy/busy_kind/outsourcing）、
   `GET /api/delegations/?parent=<sid>`、`GET /api/files/`、`POST /api/command/`（需 CSRF）。
 
-### 3.5 前端现状（部分完成）
-- 单 socket / 单 sessionId / 单 term（多标签尚未动工）。
-- 已有「外包模式」开关按钮（文案就叫这四个字），点亮后同步后端；房间成员状态条
-  列出各会话 待命/干活中/外包中，子槽显示 `↳ 目标名` 虚线徽章，250ms 防抖拉
-  `/api/sessions/`；回执帧写进当前终端（绿「外包回执」/红「外包失败」，带
-  child_sid）；`session-eof` 会在等回执时提示；`input-rejected` 写黄字提示。
+### 3.5 前端现状（P3 完成）
+
+- 技术栈已从内联 JS 迁到 `frontend/`（React 19 + TS 7 + Vite 8 + Tailwind 4 +
+  xterm 6），Django 模板退化成 17 行挂载壳；**改完必须 `npm run build`**，页面
+  走 `static/dist/` 的 manifest。
+- **多面板（一会话一终端）**：`App.tsx` 维护 `panels: Panel[]`（key/profile/
+  initialSid/sid/prompt/meta），`SessionPanel` 每个面板一份 `usePty` + 一个 xterm；
+  面板右上角 `#sid尾4位`、连接状态、重连/关闭；`panel-grid` 按面板数切 1/2/3 列
+  （窄屏单列），上限 6 个（WebGL 上下文与终端实例都要省着用）。
+- **父子关系与子会话看屏**：`RoomBar` 是按钮不是旁观条，点一下打开/切到该 sid 的
+  面板；子槽显示 `↳ label` + `#sid`，title 带 `父 <sid短>`；已 `eof` 的会话也保留
+  （置灰「已结束」），点开可看它最后一眼输出，直到父会话回收（5 分钟）。
+- **派任务入口**：`WorkspaceBar` = profile 下拉 + 任务输入框 + 「派任务/新终端」。
+  agent（kind=agent）任务必填，提交即开新面板，`usePty` 把 `prompt` 与
+  `outsourcing=1` 拼进 WS query（外包开关赶在第一行输出前就位）；shell 只给
+  「新终端」。`Ctrl+Enter` 提交。原来只能手拼 URL `&prompt=` 的入口现在有界面。
+- **首帧缓冲**：终端实例在 effect 里建，WS 回放/首屏字节可能先到 —— 先攒
+  `pendingWrites`，`term.open` 后补写，短命会话不会留下空面板。
+- **文件联动 / 外包回执 / 忙锁拒绝**：仍是每个面板就地写终端（蓝/黄标色走全局
+  `fileMarks`，回执与 `input-rejected` 写在发起面板里）。
+- 已知边界：多面板布局不持久化（URL 只记主面板）；子会话面板结束后「重开」隐藏
+  （agent 没任务起不来）；WebGL 在多面板下若上下文丢失会自退到 DOM 渲染。
 
 ## 4. 已验证结论（探针实测，样本在 .event-sample/）
 
@@ -173,10 +201,17 @@ claude / qwen 的 `Task`/`agent` 工具在 CLI 进程内部**已经自己跑了�
 - 派发前判断目标是否等于本 CLI 内部子代理类型，命中就跳过；
 - 给 CLI 关掉内部子代理（若支持），把委派完全交给底座。
 
-### P3 前端多标签并行面板
-现在单终端；需要一个会话一个面板，展示父子关系、可点开独立看屏；房间状态条目前
-只是旁观（子槽显示 `↳ 目标名`）。另外**前端还没有「派任务」入口**：agent 会话
-现在只能靠 URL `&prompt=` 起任务，界面上没有输入框把任务写进 argv。
+### ✅ P3 前端多面板 + 派任务入口（本轮完成）
+- 一个会话一个面板（`SessionPanel`），面板可并行、可切换活动面板；目录树点击
+  写入当前活动面板；每面板独立显示 sid 尾号/状态/重连/关闭。
+- 房间条可点击：主会话与子槽（`↳ label`）都能点开独立看屏；子会话面板标题带
+  父 sid 短号。已退出的会话保留到父会话回收，点开可回看最后输出。
+- 界面派任务：profile 下拉 + 任务输入 + 「派任务」；`prompt` 与 `outsourcing=1`
+  在建会话时进 WS query；shell profile 只给「新终端」。
+- 顺手补的两个缺陷：终端首帧字节先于 xterm 实例到达会丢（`pendingWrites` 缓冲）；
+  带子槽父会话 30s 回收会级联清子槽（放宽到 300s）。
+- 遗留边界：多面板布局不做持久化（URL 只记主面板）；面板上限 6；子会话结束后
+  「重开」按钮隐藏（agent 无任务起不来）。
 
 ### P4 产品待办（早先列出，未做）
 - 鉴权与会话按用户隔离；审计日志；项目台账增删改接口/admin 录入；
@@ -184,7 +219,8 @@ claude / qwen 的 `Task`/`agent` 工具在 CLI 进程内部**已经自己跑了�
 
 ## 6. 安全债（未处理）
 - RCE 端到端接浏览器，仅绑 127.0.0.1；`DEBUG=True`；`SECRET_KEY` 硬编码；无鉴权；
-  sid 裸 id 未绑用户；注册表进程内单例，多 worker 需换共享存储；仓库未初始化 git。
+  sid 裸 id 未绑用户；注册表进程内单例，多 worker 需换共享存储。仓库已初始化 git
+  （本机提交，尚无 remote），但 P2 的回执进上下文、P2.5 的 Task 双跑仍未定。
 
 ## 7. 复现与回归命令
 
@@ -196,13 +232,18 @@ cd ~/projects/agentcli
 .venv/bin/python scripts/check_delegation.py   # 桩测，不烧额度，自起 8011
 .venv/bin/python scripts/probe_delegation.py   # 人工验收，真实 claude 子槽，少量额度
 .venv/bin/python scripts/smoke.py
+# 前端（改完必须重建，否则页面还是旧产物）
+cd frontend && npm run typecheck && npm run build   # 产物进 ../static/dist
 # 起服务（必须 uvicorn）
 setsid .venv/bin/uvicorn agentcli.asgi:application --host 127.0.0.1 --port 8010 \
   > /tmp/agentcli-uvicorn.log 2>&1 < /dev/null & disown
+# 带测试桩的演示实例（不调模型，能演示委派）
+CONSOLE_ENABLE_STUB=1 setsid .venv/bin/uvicorn agentcli.asgi:application --host 127.0.0.1 --port 8013 \
+  > /tmp/agentcli-8013.log 2>&1 < /dev/null & disown
 ```
 
 - 改适配器后用 `.event-sample/` 与 `probe2/` 样本回测归类。
-- 内联 JS 语法检查：剥 Django 模板行后 `node --check`（见 CLAUDE.md 踩坑记录）。
+- 前端 dev 模式：`cd frontend && npm run dev`（5173，代理 `/api`、`/ws` 到 8010）。
 - 临时回测脚本用完即删；复杂回测落盘脚本文件，别用 `wsl bash -lc` 内联字典（引号
   嵌套会 `unmatched '}'`）。
 
@@ -221,6 +262,20 @@ setsid .venv/bin/uvicorn agentcli.asgi:application --host 127.0.0.1 --port 8010 
 - 测试需 `asyncio.new_event_loop()`；主线程无 loop 时 `get_event_loop()` 报错。
 - 关 PTY 前先 `remove_reader` 再 `close(fd)`，否则 selector 上留着已关闭的 fd。
 - `scripts/check_delegation.py` 自起 8011 的 uvicorn；跑之前别占 8011，跑完自己收尸。
+- **前端首帧会丢**：xterm 实例在 `useEffect` 里建，WS 的 `session` 帧/回放字节可能
+  先到；`SessionPanel` 现在先攒 `pendingWrites`，`term.open` 后补写。新增面板逻辑
+  别再假设「终端一定比 socket 先就绪」。
+- **子槽寿命挂在父会话上**：`_Session.shutdown()` 级联清子槽；死父会话原 `DEAD_TTL=30s`
+  一回收，子面板的 sid 立刻变 `session-missing`（前端会以为过期、另起一个空会话）。
+  所以有 `pinned` 子槽的父会话用 `DEAD_TTL_WITH_CHILDREN=300s`。
+- **多面板的 URL 语义**：地址栏跟着「最近活动过的主面板」，子会话面板不写 URL，
+  否则点开子屏看两眼，刷新回来就是一个过期子槽的空壳。`prompt` 在建会话后立刻
+  从地址栏删掉（留着会让过期重建把旧任务再跑一遍）；`localStorage` 连 profile
+  一起记，避免同一个浏览器里 stub 的 sid 被接进 bash 面板。
+- **验证工具会看到假乱码**：用文本抽取看 `?render=dom` 页面时，xterm 内部的
+  `.xterm-char-measure-element`（一排重复的 `$`/`n`/`次`）会混进页面文本，它是
+  量字宽用的隐藏探针，不是终端真的输出了乱码。判断终端内容请读
+  `.xterm-rows` 的码点。
 
 ## 9. 本机环境锚点
 - 已装 CLI（`~/.local/bin/`）：claude 2.1.325、codex-cli 0.169.0、qwen 0.27.4。

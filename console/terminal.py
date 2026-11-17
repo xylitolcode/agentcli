@@ -90,7 +90,10 @@ def available_profiles() -> list[dict[str, str]]:
     for name in settings.CONSOLE_PROFILES:
         resolved = resolve_profile(name)
         if resolved:
-            items.append({"name": name, "path": resolved[1][0]})
+            # kind 给前端用：agent 必须带初始任务才能起（claude 在真 TTY 下
+            # 没有 prompt 参数会直接报错），shell 则可以空着开
+            adapter = agents.get_adapter(name)
+            items.append({"name": name, "path": resolved[1][0], "kind": adapter.kind})
     return items
 
 

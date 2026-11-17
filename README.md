@@ -1,7 +1,8 @@
 # agentcli
 
 网页版 agent CLI —— 把本机的命令行 agent（`claude` / `codex` / `qwen`）搬进浏览器：
-左边是它的 TUI，右边是它正在干活的项目目录，开一个标签页就能用。
+一个会话一块终端面板（可同时开几块、互不打扰），右侧是它正在干活的项目目录，
+开一个标签页就能用。顶栏还能直接给 agent 派任务、给子会话开独立面板看屏。
 
 左边不是"套壳终端"，跑的是**真的 agent 进程**。这些 CLI 都是交互式 TUI ——
 全屏接管、按帧重绘、要 tty 才肯渲染 —— 所以只能用 PTY 承载（管道会把它们拍成
@@ -24,8 +25,8 @@ agentcli/
 │   └── templates/console/index.html   # 17 行，只有 #root 挂载点
 ├── frontend/              # ← 前端工程：React 19 + TS + Tailwind 4 + Vite
 │   ├── src/
-│   │   ├── App.tsx        # 状态编排：项目 / 会话 / 文件标记 / 布局
-│   │   ├── components/    # TerminalPane · FileTreePane · ProfileTabs · RoomBar …
+│   │   ├── App.tsx        # 状态编排：项目 / 多面板 / 文件标记 / 布局
+│   │   ├── components/    # SessionPanel · WorkspaceBar · RoomBar · FileTreePane …
 │   │   ├── hooks/         # usePty · useFileTree · useRoom
 │   │   ├── lib/           # xterm 封装（WebGL/字体探测）、格式化
 │   │   └── types.ts       # 前后端契约，改这里就得同步改 Django 的 JSON
@@ -153,12 +154,13 @@ agent 会话的帧协议刻意做得很薄：
   前端把它写进 URL 和 `localStorage`。
 - 重连（`/ws/terminal/?profile=bash&sid=...`）：命中存活会话就接回；缓冲里的
   历史字节先回放给新连接，再走实时流。
-- **URL 即状态**：当前 profile 和 `sid` 都同步在页面 query 上（`replaceState`，
-  不产生历史记录）。刷新、前进后退、复制链接打开，都能还原到同一个会话；
-  `localStorage` 只做 URL 缺省时的兜底。
+- **URL 即状态（只记主面板）**：`profile` / `sid` / `project` 同步在页面 query 上
+  （`replaceState`，不产生历史记录）。多面板时地址栏只跟主会话走 —— 子会话面板
+  是临时观察窗，刷新回来落到主会话；`localStorage` 只做 URL 缺省时的兜底。
 - 断连只摘观察者，不杀进程；空闲会话超过 `IDLE_TTL`（默认 300s）由后台扫描
   兜底回收；进程退出后会话进入 `dead`，留 `DEAD_TTL`（默认 30s）供重连回看
-  最终输出，随后摘除。
+  最终输出，随后摘除。名下挂着常驻子槽的父会话留 5 分钟
+  （`DEAD_TTL_WITH_CHILDREN`），否则子面板会跟着一起消失。
 - `sid` 失效（过期回收）时服务端回 `session-missing`，前端清掉本地 id 走新建。
 - 换 profile 等于新开会话：旧 id 丢弃，旧进程按空闲超时回收。
 
@@ -217,7 +219,10 @@ agent 会话的帧协议刻意做得很薄：
 - [x] **目录树变活的**：agent 读过的文件标蓝、改过的标黄，右侧不再是死的 `ls`
 - [x] **委派底座**：主会话把 Task 事件外包给常驻子槽（sid 不变、按任务换进程），
   子槽自己还能再派下一级（a→b→c）；单 agent 串行，忙则拒绝；回执逐级回灌
-- [ ] 多标签：同时盯着两三个 agent 干活（当前一个会话只挂一个连接）
+- [x] **多面板**：一个会话一块终端，可同时盯几个 agent；房间条可点开子会话面板，
+  父子关系用 `↳ label` 标出
+- [x] **界面派任务**：顶栏选 profile、写任务、点「派任务」，任务进 argv 启动会话
+- [ ] 多面板布局持久化（现在 URL / localStorage 只记主面板）
 - [ ] 回执进父会话上下文：现在只上墙，父进程是一问一答的非交互进程，接不回去
 - [ ] **`Task` 双跑**：CLI 内部子代理和底座外部子槽会重复干同一件活，需先定语义
 - [ ] 鉴权：Django auth 接上，会话按用户隔离（现在是单用户假设）

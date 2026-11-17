@@ -33,6 +33,9 @@ logger = logging.getLogger(__name__)
 REPLAY_LIMIT = 256 * 1024
 # 进程退出后，死会话留在表里供重连回看的时长（秒）
 DEAD_TTL = 30.0
+# 有常驻子槽的父会话：它一回收就会级联清掉所有子槽，子代理的「案发现场」
+# 也就没了。前端要从房间条点开子会话看屏，所以给这类父会话放宽到 5 分钟。
+DEAD_TTL_WITH_CHILDREN = 300.0
 # 空闲（没有任何连接挂着）会话的最长保留时长（秒）。超过就主动收尸，
 # 避免浏览器关了页面之后 agent 进程在后台一直挂着。
 IDLE_TTL = 300.0
@@ -217,7 +220,13 @@ class SessionRegistry:
                         # 生命周期跟着父会话走（父会话收尸时级联清理）。
                         continue
                     if rt.eof:
-                        if now - rt.last_active > DEAD_TTL:
+                        # 带常驻子槽的父会话多留一会儿：子面板要靠它活着
+                        ttl = (
+                            DEAD_TTL_WITH_CHILDREN
+                            if any(child.runtime.pinned for child in self.children(session.sid))
+                            else DEAD_TTL
+                        )
+                        if now - rt.last_active > ttl:
                             stale.append(session)
                     elif not rt.watchers and not rt.is_busy() and now - rt.last_active > IDLE_TTL:
                         # 忙的会话不被空闲回收：agent 正在跑任务，断连只是观众离开。

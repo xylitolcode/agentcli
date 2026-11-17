@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概览
 
-Django 网页版 agent CLI：进系统先在总项目目录选项目，进入后左侧 xterm.js 接
-服务端 PTY，右侧懒加载项目目录树。`bash` 是系统壳（默认入口）；`claude` /
-`codex` / `qwen` 是产品 agent 能力，走**非 TUI 流式事件**模式（适配器层解析
-JSONL）。仓库未初始化 git。
+Django 网页版 agent CLI：进系统先在总项目目录选项目，进入后工作区是**多会话面板**
+（一个会话一块 xterm + PTY），右侧懒加载项目目录树。`bash` 是系统壳（默认入口）；
+`claude` / `codex` / `qwen` 是产品 agent 能力，走**非 TUI 流式事件**模式（适配器层
+解析 JSONL）。仓库已初始化 git（本机提交）。
 
 ## 常用命令
 
@@ -42,9 +42,12 @@ python manage.py test console.tests.<类>.<方法>
   PTY 可读回调在事件循环线程上，不能直接 `await send` —— 输出经连接自己的
   `outbox` 队列由 `drain_outbox` 协程串行发出；两个任务谁先结束都要取消另一个，
   只 `await` 读任务会让发送任务跟着断连一起挂住。
-- **URL 状态**：`profile` 与 `sid` 以页面 query 为准，启动时读 URL，切换/收到
-  sid 后 `history.replaceState` 写回；`localStorage` 仅兜底。重连前先 `term.reset()`
-  清本地画面再接回放，避免旧内容和缓冲重叠。
+- **URL 状态**：`profile` / `sid` / `project` 以页面 query 为准，启动时读 URL，
+  切换/收到 sid 后 `history.replaceState` 写回；`localStorage` 仅兜底（连 profile
+  一起存，避免跨 profile 接错 sid）。多面板下地址栏跟**最近活动过的主面板**，
+  子会话面板是临时观察窗，不写地址栏 —— 否则刷新回来只剩一个已过期的子槽空壳。
+  `prompt` 建会话后立刻从 query 删除，否则过期重建会把旧任务再跑一遍。重连前先
+  `term.reset()` 清本地画面再接回放，避免旧内容和缓冲重叠。
 - **项目体系**：`console/models.py:Project` 维护台账（name/path/agent/enabled），
   `console/projects.py` 负责播种、查询、路径拼接。`CONSOLE_PROJECTS_ROOT` 是总目录，
   未选项目时守门根 = 总目录；进入项目后 `files.resolve(rel, project_id)` 收窄到项目根。
@@ -97,6 +100,9 @@ python manage.py test console.tests.<类>.<方法>
   注册表里，下一个任务复用同一张槽（`spawn_into_session` 换一代进程）。这样同一
   父会话、同一 profile/目标的多个任务 child_sid 不变，链路身份才不会断。槽被
   `pinned`，不参与空闲回收；父会话收尸时 `_Session.shutdown()` 级联清理。
+  **父会话回收时限**：死父会话默认 `DEAD_TTL=30s`，但名下还有 `pinned` 子槽时用
+  `DEAD_TTL_WITH_CHILDREN=300s` —— 否则一回收就把子槽连同前端可点开的子面板
+  一起带走（前端拿到 `session-missing` 会误当过期、另起空会话）。
 - **回执晚到**：父进程一轮跑完往往先于外包回执退出。`_Watcher.on_eof` 会先查
   `delegation.pending_for(sid)`：还有没交回执的任务就只推 `session-eof` 帧、把
   socket 留着，全部收口后再 close —— 否则晚到的 `delegate-result` 会被一起切断。
@@ -114,8 +120,9 @@ python manage.py test console.tests.<类>.<方法>
   failed 并回灌原因）；用户往 agent 会话喂字节时，若该会话正在跑外包活
   （`busy_kind=delegate`）则拒收并回 `input-rejected` 帧，中断键（Ctrl-C/D/Z/Esc）
   放行；带初始任务的会话从启动即 `busy=user`，result/EOF 释放。
-  **尚未做**：子任务结果回写父会话 LLM 上下文（目前是事件帧推送，不进上下文）、
-  前端真正的多标签并行面板；CLI 内部子代理与底座独立子进程是两回事。父会话本身
+  **尚未做**：子任务结果回写父会话 LLM 上下文（目前是事件帧推送，不进上下文）。
+  前端多面板/派任务入口已在 P3 落地（见「前端工程」与「前端规范」）。CLI 内部
+  子代理与底座独立子进程是两回事。父会话本身
   仍是一次性非交互进程（`claude -p` 在真 TTY 下没有 prompt 参数会直接报错，所以
   初始任务走 URL `&prompt=`，见下条）。
 - **profile 白名单**：`CONSOLE_PROFILES` 表决定能拉什么，URL 上是
@@ -142,9 +149,18 @@ python manage.py test console.tests.<类>.<方法>
 - **目录树**：`console/files.py:resolve(rel, project_id)` 是唯一路径守门员（`..` /
   绝对路径 / 外部软链三种越界都在这挡），边界随是否进入项目切换。`/api/files/`
   一次只返一层，前端展开时才请求。
-- **前端工程**：`frontend/`（React 19 + TS + Tailwind 4 + Vite），构建到 `static/dist/`。
-  Django 模板只有 17 行 —— 一个 `#root` 挂载点 + `json_script` 注入的 bootstrap，
-  界面全在 React 里。`console/vite.py` 读 manifest 拿到带 hash 的资源名。
+- **前端工程**：`frontend/`（React 19 + TS + Tailwind 4 + Vite 8 + xterm 6），构建到
+  `static/dist/`。Django 模板只有 17 行 —— 一个 `#root` 挂载点 + `json_script` 注入
+  的 bootstrap，界面全在 React 里。`console/vite.py` 读 manifest 拿到带 hash 的资源名。
+- **多面板架构**：`App.tsx` 维护 `panels: Panel[]`（key / profile / initialSid / sid /
+  prompt / meta），`WorkspaceBar` 是派任务入口（profile 下拉 + 任务输入），
+  `SessionPanel` 一个面板一份 `usePty` + 一个 xterm，`RoomBar` 列出房间会话并**可
+  点击开面板**（子槽 `↳ label`，带 `#sid尾号`）。一个面板 = 一条 WS = 一个前台
+  进程；关面板只关观察者，后端会话继续跑（可再点开）。面板上限 6，`panel-grid`
+  按数量切 1/2/3 列。
+- **首帧缓冲**：终端实例在 `useEffect` 里建，WS 的 `session` 帧/回放字节可能先到。
+  `SessionPanel` 用 `pendingWrites` 先攒、`term.open` 后补写 —— 短命 agent 会话
+  （桩、一问一答）不会再留下空面板。
 - **静态资源**：没有 runserver 了，`agentcli/urls.py` 在 DEBUG 下用 `static()` 提供。
   xterm 走 npm 包（`@xterm/xterm` + addon-fit + addon-webgl），不再手工 vendor。
 - **字体**：客户端字体，服务端管不着。字体栈首位必须是汉字宽度 = 2 倍西文的等宽字体
@@ -156,10 +172,12 @@ python manage.py test console.tests.<类>.<方法>
   `CONSOLE_SHELL_PROFILE` / `CONSOLE_DEFAULT_PROFILE`（默认 `bash`）、
   `CONSOLE_PROJECTS_ROOT`（总项目目录）、`CONSOLE_ROOT`（单项目兜底根）、
   `CONSOLE_TREE_LIMIT`（单层上限 400）。会话回收时长在 `console/sessions.py`
-  顶部常量（`IDLE_TTL` / `DEAD_TTL` / `REPLAY_LIMIT`）。
+  顶部常量（`IDLE_TTL` / `DEAD_TTL` / `DEAD_TTL_WITH_CHILDREN` / `REPLAY_LIMIT`）。
 - **初始任务与外包开关的 URL 参数**：`/ws/terminal/?profile=claude&prompt=...&outsourcing=1`
   可在建会话时就把初始任务写进 argv、把外包开关打开。带任务的会话一启动就可能抛
   delegate 事件，前端那帧 `outsourcing` 控制消息来不及，所以开关要能走 URL。
+  前端「派任务」入口就是把这两项拼进 query；`prompt` 即使带了 `sid` 也一直拼着，
+  会话过期重建时能复用同一任务。
 - **测试桩**：`CONSOLE_ENABLE_STUB=1` 时 settings 才登记 `stub` profile（跑
   `scripts/stub_agent.py`，不调模型、不联网，按 prompt 吐 stream-json）。
   `scripts/check_delegation.py` 自己起 8011 端口的 uvicorn 跑全套桩测；测试桩的
@@ -178,8 +196,13 @@ python manage.py test console.tests.<类>.<方法>
 - **状态归属**：跨组件共享的放 App；只影响自己的（比如某个目录展开没展开）留在组件内。
   不要为了少写两个 props 就上 Context —— 现在层级只有两层。
 - **契约在 `types.ts`**：改字段就同步改 Django 那侧的 JSON，两边一起提交。
-- **回调传 props 时注意**：`TerminalPane` 用 ref 存回调再进 effect。父组件传内联函数
+- **一个面板一条 WS**：`SessionPanel` 是唯一持有 `usePty` 的地方，一个面板对应一条
+  连接、一个 xterm、一个前台进程。跨面板共享的东西（stub 统计、handle 表、活动
+  key）留在 `App.tsx`，不要塞进 hook 或 Context —— 面板之间不互相读。
+- **回调传 props 时注意**：`SessionPanel` 用 ref 存回调再进 effect。父组件传内联函数
   会让引用每次都变，直接进依赖数组会把终端反复销毁重建。
+- **面板关闭 ≠ 杀会话**：`closePanel` 只是摘掉前端观察者，后端进程继续跑；再次点开
+  同一 sid 会先回放缓冲。要终止进程请走重连后的终端输入。
 - **样式只写 Tailwind 类**，颜色走 `@theme` 里的 token（`bg-panel`、`text-dim`、`border-line`），
   不要在组件里散落 `#0d1117` 这种字面量。伪元素、媒体查询这类写不进 class 的，
   放 `styles.css` 的 `@layer components`。
@@ -187,7 +210,8 @@ python manage.py test console.tests.<类>.<方法>
 - **注释解释为什么**，不解释做了什么。`// 摘掉 onclose，否则旧连接会触发重连` 有用；
   `// 设置 socket` 没用。
 
-提交前跑 `cd frontend && npm run typecheck`，别让类型错误过夜。
+提交前跑 `cd frontend && npm run typecheck && npm run build`：Django 模板只引
+`static/dist/` 的 manifest 产物，只 typecheck 不 build，页面跑的还是上一版。
 
 ## 注意
 

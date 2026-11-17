@@ -15,6 +15,10 @@ export type PtyOptions = {
   projectId: string
   /** 恢复会话用；空则新开 */
   initialSid?: string
+  /** 新会话的初始任务：写进 argv。agent 没有它起不来；shell 会忽略 */
+  prompt?: string
+  /** 新会话建起来时就把外包开关带上，免得第一帧 delegate 事件被丢 */
+  outsourcing?: boolean
   handlers: PtyHandlers
 }
 
@@ -40,7 +44,14 @@ const RETRY_DELAY = 2500
  * 带上 `sid` 就能接回**同一个进程**（服务端会回放输出缓冲）。只有 profile 或
  * project 变了，或者用户显式要新会话，才会把 sid 丢掉。
  */
-export function usePty({ profile, projectId, initialSid = '', handlers }: PtyOptions): PtyApi {
+export function usePty({
+  profile,
+  projectId,
+  initialSid = '',
+  prompt = '',
+  outsourcing = false,
+  handlers,
+}: PtyOptions): PtyApi {
   const [status, setStatus] = useState<ConnStatus>('connecting')
   const [sid, setSid] = useState<string | null>(initialSid || null)
 
@@ -49,6 +60,13 @@ export function usePty({ profile, projectId, initialSid = '', handlers }: PtyOpt
   const sizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const sidRef = useRef(initialSid)
   const sessionKeyRef = useRef(`${profile}|${projectId}`)
+
+  // 这两个只在开连接时拼进 query：走 ref 而不是依赖，否则用户点一下外包开关
+  // 就会把整条 WS 重建一次（终端画面、进程观察者全断）。
+  const promptRef = useRef(prompt)
+  promptRef.current = prompt
+  const outsourcingRef = useRef(outsourcing)
+  outsourcingRef.current = outsourcing
 
   const handlersRef = useRef(handlers)
   handlersRef.current = handlers
@@ -80,6 +98,11 @@ export function usePty({ profile, projectId, initialSid = '', handlers }: PtyOpt
     const params = new URLSearchParams({ profile: profile })
     if (projectId) params.set('project', projectId)
     if (sidRef.current) params.set('sid', sidRef.current)
+    // 带 sid 时服务端走「接回旧会话」，prompt 不会被用到；但若那个会话已过期，
+    // 服务端会用它重建一个新会话 —— 所以这里始终带上，刷新后不至于空会话报错。
+    if (promptRef.current) params.set('prompt', promptRef.current)
+    // 外包开关赶在进程第一行输出前就位；重连时也再带一次，保持幂等
+    if (outsourcingRef.current) params.set('outsourcing', '1')
 
     const socket = new WebSocket(`${scheme}${location.host}/ws/terminal/?${params}`)
     socket.binaryType = 'arraybuffer'
@@ -115,9 +138,8 @@ export function usePty({ profile, projectId, initialSid = '', handlers }: PtyOpt
       socketRef.current = null
       if (event.code === 1000) {
         // 进程自己退了。agent 是「派一次任务跑一次」的模式，跑完就退出很正常，
-        // 这跟断线不是一回事，不该触发自动重连。
-        sidRef.current = ''
-        setSid(null)
+        // 这跟断线不是一回事，不该触发自动重连。sid 要留着：面板还挂着这个会话
+        // 的历史画面，房间条点回来要认得出它（重开时才由 fresh 显式清掉）。
         reportStatus('ended')
         return
       }

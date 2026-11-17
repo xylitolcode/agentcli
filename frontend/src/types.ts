@@ -4,6 +4,8 @@ export type Profile = {
   name: string
   /** 可执行文件绝对路径，用来做 title 提示 */
   path: string
+  /** agent 必须带初始任务才能起；shell 可以空着开 */
+  kind: 'agent' | 'shell' | string
 }
 
 export type Project = {

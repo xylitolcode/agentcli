@@ -81,6 +81,45 @@
     transition: all 0.15s;
   }
 
+  /* 多会话面板：一个会话一格。列数由 React 按面板数量写进 data-cols，
+     行高用 1fr 均分剩余高度，超出就滚动 —— 终端自己会用 ResizeObserver 重新 fit。 */
+  .panel-grid {
+    display: grid;
+    gap: 8px;
+    align-content: stretch;
+    overflow: auto;
+  }
+
+  .panel-grid[data-cols="1"] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: minmax(0, 1fr);
+  }
+
+  .panel-grid[data-cols="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: minmax(220px, 1fr);
+  }
+
+  .panel-grid[data-cols="3"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-rows: minmax(200px, 1fr);
+  }
+
+  @media (max-width: 1180px) {
+    .panel-grid[data-cols="3"] {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  /* 窄屏一律单列，每格给个最小高度，避免终端被压成一条线 */
+  @media (max-width: 820px) {
+    .panel-grid[data-cols="2"],
+    .panel-grid[data-cols="3"] {
+      grid-template-columns: minmax(0, 1fr);
+      grid-auto-rows: minmax(260px, 1fr);
+    }
+  }
+
   .splitter:hover::after,
   body.dragging .splitter::after {
     background: var(--color-accent);
