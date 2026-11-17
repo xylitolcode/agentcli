@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 
+import { CodeViewer } from './components/CodeViewer'
 import { FileTreePane } from './components/FileTreePane'
 import { Header } from './components/Header'
 import { ProjectPicker } from './components/ProjectPicker'
@@ -139,6 +140,7 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
   const [treeWidth, setTreeWidth] = useState(DEFAULT_TREE)
   const [showHidden, setShowHidden] = useState(false)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [viewPath, setViewPath] = useState<string | null>(null)
 
   /**
    * 多面板：初始还原「上一个布局」（只含主面板）。
@@ -394,7 +396,13 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
     })
   }, [])
 
-  const handleOpenFile = useCallback(
+  // 目录树点文件 = 只读预览，不再直接把路径塞进终端；要送路径走查看器里的按钮
+  const handleOpenFile = useCallback((path: string) => {
+    setSelectedPath(path)
+    setViewPath(path)
+  }, [])
+
+  const handleInsertPath = useCallback(
     (path: string) => {
       const text = `${shellQuote(path)} `
       const handle = handles.current.get(activeKey)
@@ -408,6 +416,10 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
     },
     [activeKey, addPanel, bootstrap.defaultProfile, shellProfile],
   )
+
+  useEffect(() => {
+    setViewPath(null)
+  }, [projectId])
 
   useEffect(() => {
     if (!pendingInsert.current) return
@@ -539,6 +551,18 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
           onSelect={setSelectedPath}
         />
       </main>
+
+      {viewPath && (
+        <CodeViewer
+          path={viewPath}
+          projectId={projectId}
+          onClose={() => setViewPath(null)}
+          onInsert={(path) => {
+            handleInsertPath(path)
+            setViewPath(null)
+          }}
+        />
+      )}
 
       <StatusBar
         status={activeStat?.status ?? 'ended'}

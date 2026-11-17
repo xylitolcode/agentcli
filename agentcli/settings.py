@@ -171,6 +171,9 @@ CONSOLE_DEFAULT_PROFILE = "bash"
 # 目录树单层返回上限，防止在大目录上把响应撑爆
 CONSOLE_TREE_LIMIT = 400
 
+# 只读代码查看器单文件上限（超过截断，不拒绝）
+CONSOLE_FILE_LIMIT = 512 * 1024
+
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration

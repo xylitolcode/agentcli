@@ -29,7 +29,58 @@ class PathOutsideRoot(Exception):
 
 
 class PathNotFound(Exception):
-    """路径不存在，或者存在但不是目录。"""
+    """路径不存在，或者存在但不是目录/文件。"""
+
+
+def read_text(rel: str, project_id: str | int | None = None) -> dict:
+    """只读取文本文件，供前端代码查看器使用。
+
+    控制台不做编辑，所以这里只有读；越界仍由 :func:`resolve` 挡住。大文件截断
+    而不是拒绝，二进制给标记，让前端显示提示而不是一屏乱码。
+    """
+    target = resolve(rel, project_id)
+    if not target.is_file():
+        raise PathNotFound(rel)
+
+    stat = target.stat()
+    limit = int(settings.CONSOLE_FILE_LIMIT)
+    with open(target, "rb") as handle:
+        data = handle.read(limit + 1)
+    truncated = len(data) > limit
+    if truncated:
+        data = data[:limit]
+
+    sample = data[:4096]
+    controls = sum(1 for byte in sample if byte < 9 or 13 < byte < 32)
+    binary = b"\x00" in sample or (sample and controls / len(sample) > 0.1)
+    text = ""
+    encoding = ""
+    if not binary:
+        # 先按 UTF-8；截断可能切断最后一个多字节字符，去掉尾巴再试一次。
+        for candidate in ("utf-8", "gb18030"):
+            payloads = [data, data[:-4]] if truncated else [data]
+            for payload in payloads:
+                try:
+                    text = payload.decode(candidate)
+                except UnicodeDecodeError:
+                    continue
+                encoding = candidate
+                break
+            if encoding:
+                break
+        if not encoding:
+            binary = True
+
+    return {
+        "path": to_rel(target, root(project_id)),
+        "size": stat.st_size,
+        "mtime": stat.st_mtime,
+        "truncated": truncated,
+        "binary": binary,
+        "encoding": encoding,
+        "content": text if not binary else "",
+        "lines": text.count("\n") + 1 if text else 0,
+    }
 
 
 def root(project_id: str | int | None = None) -> Path:

@@ -22,6 +22,7 @@ python scripts/check_terminal.py            # WS->PTY 端到端（echo/tty/cd/Ct
 python scripts/check_session.py             # 会话保持：断线重连同进程、同 tty、历史回放
 python scripts/check_delegation.py          # 委派链路：常驻子槽/a→b→c/忙锁（headless）/交互态直通（桩测）
 python scripts/check_mcp.py                 # MCP stdio 协议：初始化/工具列表/参数校验/403/超时夹取（桩测）
+python scripts/check_file.py                # 只读文件接口：读取/越界/二进制/截断
 python scripts/probe_delegation.py          # 人工验收：真实 claude 当子槽（消耗少量真实额度）
 python manage.py check
 python manage.py test console.tests.<类>.<方法>
@@ -199,7 +200,11 @@ python manage.py test console.tests.<类>.<方法>
     selector 上留着已关闭的 fd 会一直报错。
 - **目录树**：`console/files.py:resolve(rel, project_id)` 是唯一路径守门员（`..` /
   绝对路径 / 外部软链三种越界都在这挡），边界随是否进入项目切换。`/api/files/`
-  一次只返一层，前端展开时才请求。
+  一次只返一层，前端展开时才请求。`/api/file/` 只读文本给代码查看器：512KB 截断、
+  二进制/NUL 标记、UTF-8→GB18030 回退，不写盘。
+- **代码查看器**：`FileNode` 点文件 → `CodeViewer`（fixed 遮罩 + 88vh 面板），
+  `highlight.js` 按扩展名高亮，未知类型 <80KB 自动识别、>200KB 纯文本；
+  只提供「插入终端」和 Esc 关闭，**没有保存/编辑**。
 - **前端工程**：`frontend/`（React 19 + TS + Tailwind 4 + Vite 8 + xterm 6），构建到
   `static/dist/`。Django 模板只有 17 行 —— 一个 `#root` 挂载点 + `json_script` 注入
   的 bootstrap，界面全在 React 里。`console/vite.py` 读 manifest 拿到带 hash 的资源名。

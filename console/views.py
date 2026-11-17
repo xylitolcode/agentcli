@@ -68,6 +68,29 @@ def tree(request):
     return JsonResponse(payload)
 
 
+async def file_api(request):
+    """只读文本接口：目录树点文件时取内容，供代码查看器高亮显示。
+
+    只读、不落盘；大文件截断、二进制标记。越界仍由 ``files.resolve`` 挡住。
+    """
+    if request.method != "GET":
+        return JsonResponse({"ok": False, "error": "只接受 GET"}, status=405)
+    rel = request.GET.get("path", "")
+    project_id = request.GET.get("project", "") or None
+    if not rel:
+        return JsonResponse({"ok": False, "error": "path 不能为空"}, status=400)
+    try:
+        payload = await sync_to_async(files.read_text)(rel, project_id)
+    except files.PathOutsideRoot:
+        return JsonResponse({"ok": False, "error": "路径越界，拒绝访问"}, status=403)
+    except files.PathNotFound:
+        return JsonResponse({"ok": False, "error": "文件不存在或不可读"}, status=404)
+    except OSError as exc:
+        return JsonResponse({"ok": False, "error": f"读取失败：{exc}"}, status=500)
+    payload["ok"] = True
+    return JsonResponse(payload)
+
+
 def projects_list(request):
     """返回 Django 维护的项目清单（供前端选择入口）。"""
     return JsonResponse({"ok": True, "projects": projects.list_projects()})

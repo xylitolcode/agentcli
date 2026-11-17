@@ -42,6 +42,20 @@ export type DirListing = {
   truncated: boolean
 }
 
+/** 只读代码查看器的响应；binary 时 content 为空 */
+export type FileContent = {
+  ok: boolean
+  path: string
+  size: number
+  mtime: number
+  truncated: boolean
+  binary: boolean
+  encoding: string
+  content: string
+  lines: number
+  error?: string
+}
+
 /** agent 动过的文件：读过标蓝，写过标黄 */
 export type FileMark = {
   read: boolean

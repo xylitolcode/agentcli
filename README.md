@@ -84,6 +84,7 @@ python scripts/check_terminal.py   # 真终端：echo / tty / cd / Ctrl-C / ANSI
 python scripts/check_session.py    # 会话保持：断开重连，同进程、同 tty、历史回放
 python scripts/check_delegation.py # 委派链路：常驻子槽、a→b→c、忙锁、槽复用（桩测）
 python scripts/check_mcp.py        # MCP stdio：初始化、工具列表、参数校验、403、超时夹取（桩测）
+python scripts/check_file.py       # 只读文件接口：正常读取、越界、二进制、截断
 python scripts/probe_delegation.py # 人工验收：真实 claude 当子槽（消耗少量额度）
 ```
 
@@ -206,6 +207,12 @@ agent 判断该分工、或用户明确要求时调用它；服务端把任务�
 `GET /api/files/?path=<相对路径>`，一次只返回**一层**，前端展开时才请求。响应里带
 `link` / `blocked` 标记：指向项目目录之外的符号链接会被标成 `blocked`，点不开。
 
+点文件不再把路径塞进终端，而是打开**只读代码查看器**：`highlight.js` 按扩展名高亮，
+大文件截断、二进制给提示；查看器里只有「插入终端」和关闭，没有保存/编辑。
+
+`GET /api/file/?path=<相对路径>` 是它的数据源：复用同一个 `resolve()`，512KB 截断，
+UTF-8 解码失败时回退 GB18030，仍失败则标成二进制。
+
 `console/files.py:resolve()` 是唯一的路径守门员，`..`、绝对路径、外部软链三种越界
 都在那里统一挡掉。要加新接口（读文件、上传、下载）就必须过它。
 
@@ -270,8 +277,10 @@ agent 判断该分工、或用户明确要求时调用它；服务端把任务�
   后续由 git status / diff 视图替代并可移除；qwen/codex 不接
 - [x] **外包实测**：claude / codex / qwen 都能在原生 TUI 里主动调 `delegate_task`，
   回执进入各自上下文；codex 首次有信任页与一次原生工具审批
-- [ ] **只读代码 / Git 视图（P5）**：目录树点文件只看不写，带语法高亮；再加
-  `git status` / 提交历史 / diff 面板。控制台不做编辑、不代做 add/commit/reset。
+- [x] **P5a 只读代码查看器**：目录树点文件 → 弹层只读高亮、512KB 截断、二进制提示；
+  只保留「插入终端」，不保存、不编辑
+- [ ] **只读代码 / Git 视图（P5）**：P5b `git status` / 提交历史，P5c diff 面板。
+  控制台不做编辑、不代做 add/commit/reset。
 - [ ] 鉴权：Django auth 接上，会话按用户隔离（现在是单用户假设）
 - [ ] 审计日志：谁在什么时候、用哪个 agent、动了什么
 - [ ] **agent 独立配置管理页**：反代地址、鉴权/key、模型选择、权限放行档位、
