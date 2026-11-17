@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Django
+db.sqlite3
+db.sqlite3-journal
+/staticfiles/
+/media/
+*.log
+
+# 本地环境
+.env
+.env.local
+
+# 前端：依赖和构建产物都不入库
+frontend/node_modules/
+static/dist/
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+
+# agent 工作目录
+.workbuddy/

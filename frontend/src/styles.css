@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+/* 设计 token。Tailwind v4 会自动从 --color-* 派生 bg-/text-/border- 工具类，
+   所以组件里写 bg-panel、text-dim 就行，不用到处硬编码十六进制。 */
+@theme {
+  --color-surface: #0b0f14;
+  --color-panel: #0d1117;
+  --color-panel-2: #10161d;
+  --color-line: #1f2630;
+  --color-line-soft: #161b22;
+  --color-fg: #c9d1d9;
+  --color-dim: #8b949e;
+  --color-faint: #4d5866;
+  --color-ghost: #3d4652;
+  --color-accent: #58a6ff;
+  --color-ok: #3fb950;
+  --color-warn: #d29922;
+  --color-err: #f85149;
+
+  --font-mono: "Sarasa Term SC Nerd", "Sarasa Term SC", "JetBrains Mono",
+    "Fira Code", "Cascadia Mono", "Microsoft YaHei", "PingFang SC",
+    "Noto Sans CJK SC", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-surface text-fg font-mono text-[13px] overflow-hidden;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #263041;
+    border-radius: 6px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #35435a;
+    background-clip: content-box;
+  }
+}
+
+/* xterm 自带的 viewport 会给自身刷一层背景，跟面板底色打架 */
+.xterm .xterm-viewport {
+  background-color: transparent !important;
+}
+
+@layer components {
+  /* 左终端 / 分隔条 / 右目录树。--tree-w 由 React 按拖拽结果写进来。 */
+  .workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 7px var(--tree-w, 330px);
+  }
+
+  .splitter {
+    position: relative;
+    cursor: col-resize;
+    touch-action: none;
+  }
+
+  .splitter::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 44%;
+    bottom: 44%;
+    width: 1px;
+    background: var(--color-line);
+    transition: all 0.15s;
+  }
+
+  .splitter:hover::after,
+  body.dragging .splitter::after {
+    background: var(--color-accent);
+    top: 12%;
+    bottom: 12%;
+    box-shadow: 0 0 6px rgba(88, 166, 255, 0.5);
+  }
+
+  body.dragging {
+    cursor: col-resize;
+    user-select: none;
+  }
+
+  /* 窄屏：上下堆叠，拖拽条转成横向 */
+  @media (max-width: 860px) {
+    .workspace {
+      grid-template-columns: 1fr;
+      grid-template-rows: minmax(0, 1.4fr) 6px minmax(0, 1fr);
+    }
+
+    .splitter {
+      cursor: row-resize;
+    }
+
+    .splitter::after {
+      left: 44%;
+      right: 44%;
+      top: 3px;
+      bottom: auto;
+      width: auto;
+      height: 1px;
+    }
+  }
+}
