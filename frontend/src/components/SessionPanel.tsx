@@ -1,9 +1,11 @@
+import { motion, useReducedMotion } from 'motion/react'
 import { useEffect, useImperativeHandle, useRef } from 'react'
 import type { Ref } from 'react'
 import type { Terminal } from '@xterm/xterm'
 
 import { usePty } from '../hooks/usePty'
 import { createTerminal } from '../lib/terminal'
+import { EASE, SPRING } from '../motion'
 import type { ConnStatus, ControlMessage, RenderMode } from '../types'
 
 export type SessionHandle = {
@@ -100,6 +102,7 @@ export function SessionPanel({
   onControl,
   ref,
 }: Props) {
+  const reduce = useReducedMotion()
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   /**
@@ -247,20 +250,35 @@ export function SessionPanel({
   }, [profile])
 
   return (
-    <section
+    <motion.section
       data-panel={panelKey}
       data-active={active ? '1' : '0'}
       onPointerDown={() => cbRef.current.onActivate()}
+      /*
+       * 只有进场动：擦除式露出，尺寸从一开始就是最终尺寸 ——
+       * 终端只在最终尺寸上 fit 一次，不会跟着动画逐帧重排。
+       * 关闭立即消失（终端里关窗口就该是瞬间的）。
+       */
+      initial={reduce ? false : { clipPath: 'inset(0 0 0 100%)' }}
+      animate={{ clipPath: 'inset(0 0 0 0%)' }}
+      transition={{ duration: 0.22, ease: EASE }}
       className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface"
     >
       <div
         className={
-          'flex shrink-0 items-center gap-1.5 border-b border-line px-2 py-[4px] ' +
-          (active
-            ? 'bg-[rgba(110,243,200,0.05)] shadow-[inset_2px_0_0_var(--color-phos)]'
-            : 'bg-transparent')
+          'relative flex shrink-0 items-center gap-1.5 border-b border-line px-2 py-[4px] ' +
+          (active ? 'bg-[rgba(110,243,200,0.05)]' : 'bg-transparent')
         }
       >
+        {/* 舞台左沿的发光条：跨面板 morph，像同一道光标被搬到另一个会话 */}
+        {active && (
+          <motion.i
+            aria-hidden
+            layoutId="stage-cursor"
+            transition={SPRING}
+            className="absolute inset-y-0 left-0 w-[2px] bg-phos shadow-[0_0_10px_rgba(110,243,200,0.55)]"
+          />
+        )}
         <i className={`size-1.5 shrink-0 rounded-full ${DOT_STYLE[status]}`} />
         <span
           className={`shrink-0 text-[10.5px] uppercase tracking-[0.08em] ${active ? 'text-accent' : 'text-dim'}`}
@@ -329,6 +347,6 @@ export function SessionPanel({
       <div className="min-h-0 flex-1 overflow-hidden px-2 py-1.5">
         <div ref={hostRef} className="size-full" />
       </div>
-    </section>
+    </motion.section>
   )
 }

@@ -1,3 +1,6 @@
+import { AnimatePresence, motion } from 'motion/react'
+
+import { EASE } from '../motion'
 import type { SessionInfo } from '../types'
 import { RoomBar } from './RoomBar'
 
@@ -61,8 +64,26 @@ export function WorkspaceBar({
           外包
         </button>
 
-        <span className="text-[10px] text-faint" title="一个面板 = 一条 WebSocket = 一个前台会话">
-          {panelCount}/{maxPanels}
+        <span
+          className="flex items-center text-[10px] text-faint"
+          title="一个面板 = 一条 WebSocket = 一个前台会话"
+        >
+          {/* 计数是个位表：数字向上滚一位，宽度写死 1ch，不推挤右边的按钮 */}
+          <span className="relative inline-block w-[1ch] text-right">
+            <AnimatePresence initial={false}>
+              <motion.span
+                key={panelCount}
+                className="absolute inset-0 text-right"
+                initial={{ y: 6, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: -6, opacity: 0 }}
+                transition={{ duration: 0.16, ease: EASE }}
+              >
+                {panelCount}
+              </motion.span>
+            </AnimatePresence>
+          </span>
+          /{maxPanels}
         </span>
 
         {panelCount > 1 && (

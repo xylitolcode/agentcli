@@ -1,9 +1,11 @@
+import { motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 
 import { fetchJson } from '../lib/api'
 import { buildRows, dirOf, selectableRows, spanSegments } from '../lib/search'
 import type { SearchRow } from '../lib/search'
+import { EASE, SPRING } from '../motion'
 import type { SearchResult } from '../types'
 import { FileIcon } from './icons'
 
@@ -180,14 +182,22 @@ export function SearchPane({ projectId, projectName, onClose, onOpen }: Props) {
   )
 
   return (
-    <div
+    <motion.div
       className="fixed inset-0 z-40 flex items-start justify-center bg-black/55 px-3 pt-[8vh] backdrop-blur-[2px]"
       onClick={onClose}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.14, ease: EASE }}
     >
-      <section
+      <motion.section
         className="flex max-h-[76vh] w-full max-w-[820px] flex-col overflow-hidden rounded-[2px] border border-line bg-panel shadow-[0_0_90px_rgba(0,0,0,0.7)]"
         onClick={(event) => event.stopPropagation()}
         aria-label="工作区搜索"
+        initial={{ opacity: 0, scale: 0.985, y: -6 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.99, y: -4 }}
+        transition={SPRING}
       >
         <header className="flex shrink-0 items-center gap-2 border-b border-line bg-[rgba(11,18,25,0.7)] px-3 py-2">
           <span className="flex items-center overflow-hidden rounded-[1px] border border-line">
@@ -273,7 +283,7 @@ export function SearchPane({ projectId, projectName, onClose, onOpen }: Props) {
           <span className="truncate">{summary}</span>
           <span className="ml-auto shrink-0">↑↓ 选择 · Enter 打开 · Esc 关闭</span>
         </footer>
-      </section>
-    </div>
+      </motion.section>
+    </motion.div>
   )
 }

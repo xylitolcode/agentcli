@@ -131,9 +131,11 @@
     color: var(--color-phos);
   }
 
-  /* 当前频道：左侧一条发光竖线，像仪表盘上的选中位 */
-  .rail-slot[data-state="active"]::before {
-    content: "";
+  /*
+   * 当前频道的发光竖条：由 Motion 的 layoutId 在槽位之间搬移（同一根条换位置），
+   * 所以这里只管长相 —— 位置和过渡归动效层，CSS 不再插手。
+   */
+  .rail-cursor {
     position: absolute;
     left: 0;
     top: 6px;
@@ -520,7 +522,7 @@
       border-right: 1px solid var(--color-line-soft);
     }
 
-    .rail-slot[data-state="active"]::before {
+    .rail-cursor {
       left: 6px;
       right: 6px;
       top: 0;

@@ -1,3 +1,4 @@
+import { motion } from 'motion/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import hljs from 'highlight.js/lib/core'
 import bash from 'highlight.js/lib/languages/bash'
@@ -26,6 +27,7 @@ import 'highlight.js/styles/github-dark.css'
 import { fetchJson } from '../lib/api'
 
 import { baseName, extOf, isMarkdownFile } from '../lib/fileKind'
+import { EASE, SPRING } from '../motion'
 import type { FileContent } from '../types'
 import { FileIcon } from './icons'
 import { MarkdownView } from './MarkdownView'
@@ -311,14 +313,22 @@ export function CodeViewer({ path, projectId, onClose, onInsert, focusLine }: Pr
   )
 
   return (
-    <div
+    <motion.div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 p-3 backdrop-blur-[2px]"
       onClick={onClose}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.14, ease: EASE }}
     >
-      <section
+      <motion.section
         className="flex h-[88vh] w-full max-w-[1100px] flex-col overflow-hidden rounded-[2px] border border-line bg-panel shadow-[0_0_90px_rgba(0,0,0,0.7)]"
         onClick={(event) => event.stopPropagation()}
         aria-label="只读代码查看器"
+        initial={{ opacity: 0, scale: 0.985, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.99, y: 4 }}
+        transition={SPRING}
       >
         <header className="flex shrink-0 items-center gap-2 border-b border-line bg-[rgba(11,18,25,0.7)] px-3 py-2">
           <span className="shrink-0 text-dim"><FileIcon /></span>
@@ -401,7 +411,7 @@ export function CodeViewer({ path, projectId, onClose, onInsert, focusLine }: Pr
           {data?.truncated && <span className="text-warn">文件过大，只显示前 512 KB</span>}
           <span className="ml-auto">Esc 关闭</span>
         </footer>
-      </section>
-    </div>
+      </motion.section>
+    </motion.div>
   )
 }

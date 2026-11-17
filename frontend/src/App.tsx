@@ -1,3 +1,4 @@
+import { AnimatePresence, MotionConfig } from 'motion/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 
@@ -20,6 +21,7 @@ import { useRoom } from './hooks/useRoom'
 import { binaryKind } from './lib/fileKind'
 import { formatSize, shellQuote } from './lib/format'
 import { isFontInstalled } from './lib/terminal'
+import { HUD } from './motion'
 import type {
   Bootstrap,
   ConnStatus,
@@ -534,17 +536,19 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
 
   if (!projectId) {
     return (
-      <div className="flex h-full flex-col">
-        <Header
-          label={bootstrap.rootPath}
-          status="connecting"
-          renderMode="dom"
-          cols={0}
-          rows={0}
-          fontOk={fontOk}
-        />
-        <ProjectPicker projects={bootstrap.projects} onPick={enterProject} />
-      </div>
+      <MotionConfig reducedMotion="user" transition={HUD}>
+        <div className="flex h-full flex-col">
+          <Header
+            label={bootstrap.rootPath}
+            status="connecting"
+            renderMode="dom"
+            cols={0}
+            rows={0}
+            fontOk={fontOk}
+          />
+          <ProjectPicker projects={bootstrap.projects} onPick={enterProject} />
+        </div>
+      </MotionConfig>
     )
   }
 
@@ -553,7 +557,8 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
   const columns = panels.length <= 1 ? 1 : panels.length <= 4 ? 2 : 3
 
   return (
-    <div className="flex h-full flex-col">
+    <MotionConfig reducedMotion="user" transition={HUD}>
+      <div className="flex h-full flex-col">
       <Header
         label={project ? `${project.name} · ${project.path}` : bootstrap.rootPath}
         onSearch={() => setSearchOpen(true)}
@@ -677,49 +682,55 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
         </div>
       </div>
 
-      {view?.kind === 'file' && (
-        <CodeViewer
-          path={view.path}
-          projectId={projectId}
-          focusLine={view.line}
-          onClose={() => setView(null)}
-          onInsert={(path) => {
-            handleInsertPath(path)
-            setView(null)
-          }}
-        />
-      )}
+      <AnimatePresence>
+        {view?.kind === 'file' && (
+          <CodeViewer
+            path={view.path}
+            projectId={projectId}
+            focusLine={view.line}
+            onClose={() => setView(null)}
+            onInsert={(path) => {
+              handleInsertPath(path)
+              setView(null)
+            }}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {searchOpen && (
+          <SearchPane
+            projectId={projectId}
+            projectName={project?.name ?? bootstrap.rootName}
+            onClose={() => setSearchOpen(false)}
+            onOpen={(path, line) => {
+              setSearchOpen(false)
+              handleOpenFile(path, null, line)
+            }}
+          />
+        )}
+      </AnimatePresence>
 
-      {searchOpen && (
-        <SearchPane
-          projectId={projectId}
-          projectName={project?.name ?? bootstrap.rootName}
-          onClose={() => setSearchOpen(false)}
-          onOpen={(path, line) => {
-            setSearchOpen(false)
-            handleOpenFile(path, null, line)
-          }}
-        />
-      )}
-
-      {view?.kind === 'diff' && (
-        <DiffViewer
-          path={view.path}
-          projectId={projectId}
-          mode={view.mode}
-          onClose={() => setView(null)}
-          onOpenFile={handleOpenFile}
-          onInsert={(path) => {
-            handleInsertPath(path)
-            setView(null)
-          }}
-        />
-      )}
+      <AnimatePresence>
+        {view?.kind === 'diff' && (
+          <DiffViewer
+            path={view.path}
+            projectId={projectId}
+            mode={view.mode}
+            onClose={() => setView(null)}
+            onOpenFile={handleOpenFile}
+            onInsert={(path) => {
+              handleInsertPath(path)
+              setView(null)
+            }}
+          />
+        )}
+      </AnimatePresence>
       {notice && (
         <div key={notice.id} className="notice" role="status">
           {notice.text}
         </div>
       )}
-    </div>
+      </div>
+    </MotionConfig>
   )
 }

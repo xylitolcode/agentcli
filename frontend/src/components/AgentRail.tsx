@@ -1,3 +1,6 @@
+import { motion } from 'motion/react'
+
+import { SPRING } from '../motion'
 import type { ConnStatus, Profile } from '../types'
 import { BrandIcon } from './BrandIcon'
 
@@ -74,6 +77,13 @@ export function AgentRail({
             data-state={active ? 'active' : open ? 'open' : 'idle'}
             className="rail-slot"
           >
+            {/*
+             * 当前频道的发光竖条只有一条，靠 layoutId 在槽位之间滑动 ——
+             * 「焦点搬家」而不是「两个槽位各自亮一下」。
+             */}
+            {active && (
+              <motion.i aria-hidden layoutId="rail-cursor" transition={SPRING} className="rail-cursor" />
+            )}
             <BrandIcon name={name} className="size-[21px]" />
             {open && (
               <i
@@ -103,6 +113,9 @@ export function AgentRail({
         data-state={shellOpen ? 'active' : 'idle'}
         className="rail-slot"
       >
+        {shellOpen && (
+          <motion.i aria-hidden layoutId="rail-cursor" transition={SPRING} className="rail-cursor" />
+        )}
         <BrandIcon name="bash" className="size-[19px]" />
       </button>
 

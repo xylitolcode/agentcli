@@ -1,3 +1,6 @@
+import { AnimatePresence, motion } from 'motion/react'
+
+import { EASE } from '../motion'
 import type { ConnStatus, RenderMode } from '../types'
 
 type Props = {
@@ -57,18 +60,27 @@ export function Header({
 
       <span className="flex shrink-0 items-center gap-2.5 border-l border-line pl-3 text-[10.5px] text-faint">
         {status && (
-          <span
-            className={
-              status === 'online'
-                ? 'text-accent'
-                : status === 'offline'
-                  ? 'text-err'
-                  : status === 'connecting'
-                    ? 'text-warn'
-                    : ''
-            }
-          >
-            {STATUS_TEXT[status]}
+          <span className="relative inline-flex min-w-[3.2em] items-center">
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.span
+                key={status}
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 4 }}
+                transition={{ duration: 0.14, ease: EASE }}
+                className={
+                  status === 'online'
+                    ? 'text-accent'
+                    : status === 'offline'
+                      ? 'text-err'
+                      : status === 'connecting'
+                        ? 'text-warn'
+                        : ''
+                }
+              >
+                {STATUS_TEXT[status]}
+              </motion.span>
+            </AnimatePresence>
           </span>
         )}
         {renderMode && <span title="xterm 渲染后端">{renderMode}</span>}

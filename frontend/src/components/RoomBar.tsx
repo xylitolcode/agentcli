@@ -1,3 +1,6 @@
+import { AnimatePresence, motion } from 'motion/react'
+
+import { EASE } from '../motion'
 import type { SessionInfo } from '../types'
 
 type Props = {
@@ -19,8 +22,10 @@ export function RoomBar({ sessions, activeSid, onOpen }: Props) {
   if (sessions.length === 0) return null
 
   return (
-    <span className="flex min-w-0 items-center gap-1 overflow-x-auto">
-      {sessions.map((session) => {
+    <motion.span layout className="flex min-w-0 items-center gap-1 overflow-x-auto">
+      {/* 新会话是事件流：前 10 个错开 30ms 依次亮起，后面的直接到位（不排队） */}
+      <AnimatePresence initial={false}>
+        {sessions.map((session, index) => {
         const isSelf = session.sid === activeSid
         const isChild = session.role === 'child'
         const ended = session.eof
@@ -36,18 +41,21 @@ export function RoomBar({ sessions, activeSid, onOpen }: Props) {
         const tail = session.sid.slice(-4)
 
         return (
-          <button
+          <motion.button
             key={session.sid}
+            layout
             type="button"
             onClick={() => onOpen(session)}
             title={`${session.sid}${session.cwd ? ' · ' + session.cwd : ''}${parentHint}（点击打开面板）`}
+            initial={{ opacity: 0, x: -6 }}
+            animate={{ opacity: ended ? 0.55 : isChild ? 0.85 : 1, x: 0 }}
+            exit={{ opacity: 0, x: -6, transition: { duration: 0.12, ease: EASE } }}
+            transition={{ duration: 0.16, ease: EASE, delay: Math.min(index, 9) * 0.03 }}
             className={
               'inline-flex shrink-0 items-center gap-1 rounded-[1px] border px-1.5 py-[1px] text-[10.5px] transition-colors ' +
               (isSelf
                 ? 'border-accent text-accent'
-                : 'border-line text-dim hover:border-accent hover:text-fg') +
-              (isChild ? ' opacity-80' : '') +
-              (ended ? ' opacity-50' : '')
+                : 'border-line text-dim hover:border-accent hover:text-fg')
             }
           >
             <i
@@ -64,9 +72,10 @@ export function RoomBar({ sessions, activeSid, onOpen }: Props) {
             <span>{label}</span>
             <span className="text-ghost">#{tail}</span>
             <span className="text-faint">{activity}</span>
-          </button>
+          </motion.button>
         )
-      })}
-    </span>
+        })}
+      </AnimatePresence>
+    </motion.span>
   )
 }
