@@ -12,7 +12,7 @@ export type SessionHandle = {
   /** 同步外包模式开关到服务端 */
   setOutsourcing: (on: boolean) => void
   focus: () => void
-  reconnect: (options?: { fresh?: boolean }) => void
+  reconnect: (options?: { fresh?: boolean; rerun?: boolean }) => void
 }
 
 type Props = {
@@ -28,6 +28,8 @@ type Props = {
   active: boolean
   /** 结束后还能不能「重开」：agent 会话没任务就起不来，别给假按钮 */
   restartable: boolean
+  /** ended 时走「原槽重跑上一轮委派任务」，而不是用面板里的 prompt 新开会话 */
+  rerunOnEnded?: boolean
   /** 面板头左侧名字：主会话是 profile，子会话是「↳ label」 */
   title: string
   /** 名字后面那截灰字：父会话 / 任务预览 */
@@ -83,6 +85,7 @@ export function SessionPanel({
   outsourcing,
   active,
   restartable,
+  rerunOnEnded = false,
   title,
   subtitle,
   onActivate,
@@ -146,6 +149,9 @@ export function SessionPanel({
           case 'input-rejected':
             write(`\r\n\x1b[33m[任务被拒]\x1b[0m ${message.reason ?? ''}\r\n`)
             break
+          case 'rerun-error':
+            write(dim(`[重跑失败] ${message.reason ?? ''}`))
+            break
           default:
             break
         }
@@ -180,8 +186,8 @@ export function SessionPanel({
       setOutsourcing: (on: boolean) => sendControl({ type: 'outsourcing', on }),
       focus: () => termRef.current?.focus(),
       reconnect: (options) => {
-        // 另起会话时先擦掉旧画面，不然新旧输出会叠在一起
-        if (options?.fresh) termRef.current?.reset()
+        // 另起/重跑都先擦掉旧画面，不然新旧输出会叠在一起
+        if (options?.fresh || options?.rerun) termRef.current?.reset()
         reconnect(options)
       },
     }),
@@ -267,14 +273,17 @@ export function SessionPanel({
           {(status === 'offline' || (status === 'ended' && restartable)) && (
             <button
               onClick={(event) => {
-                const fresh = event.shiftKey || status === 'ended'
+                const rerun = status === 'ended' && rerunOnEnded
+                const fresh = event.shiftKey || (status === 'ended' && !rerun)
                 // 另起会话先把旧画面擦掉，不然新旧输出会叠在一起
                 if (fresh) termRef.current?.reset()
-                reconnect({ fresh })
+                reconnect(rerun ? { rerun: true } : { fresh })
               }}
               title={
                 status === 'ended'
-                  ? '重开：用同一任务再跑一次'
+                  ? rerunOnEnded
+                    ? '重开：在原来的子会话槽里重跑上一轮任务'
+                    : '重开：用同一任务再跑一次'
                   : '重连回原会话（Shift+点击：新开会话）'
               }
               className="rounded-[5px] border border-transparent px-1 py-px text-[10.5px] text-dim hover:border-line hover:bg-line-soft hover:text-fg"

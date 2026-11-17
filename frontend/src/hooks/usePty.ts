@@ -29,8 +29,8 @@ export type PtyApi = {
   send: (data: Uint8Array<ArrayBuffer>) => void
   sendControl: (payload: Record<string, unknown>) => void
   resize: (cols: number, rows: number) => void
-  /** fresh=true 丢弃旧会话另起一个 */
-  reconnect: (options?: { fresh?: boolean }) => void
+  /** fresh=true 丢弃旧会话另起一个；rerun=true 让服务端在原槽里重跑上一轮任务 */
+  reconnect: (options?: { fresh?: boolean; rerun?: boolean }) => void
 }
 
 const RETRY_DELAY = 2500
@@ -76,8 +76,9 @@ export function usePty({
     handlersRef.current.onStatus?.(next)
   }
 
-  const openSocket = useCallback((options?: { fresh?: boolean }) => {
+  const openSocket = useCallback((options?: { fresh?: boolean; rerun?: boolean }) => {
     const fresh = options?.fresh ?? false
+    const rerun = options?.rerun ?? false
     const previous = socketRef.current
     if (previous) {
       // 摘掉 onclose，否则旧连接的关闭会触发一次自动重连，和新会话打架
@@ -103,6 +104,8 @@ export function usePty({
     if (promptRef.current) params.set('prompt', promptRef.current)
     // 外包开关赶在进程第一行输出前就位；重连时也再带一次，保持幂等
     if (outsourcingRef.current) params.set('outsourcing', '1')
+    // 只在这一条连接上请求重跑（与会话 sid 一起用），不改变本地状态
+    if (rerun) params.set('rerun', '1')
 
     const socket = new WebSocket(`${scheme}${location.host}/ws/terminal/?${params}`)
     socket.binaryType = 'arraybuffer'

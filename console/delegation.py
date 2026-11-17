@@ -130,11 +130,14 @@ async def dispatch(
     *,
     profile: str,
     cwd: str,
+    force: bool = False,
 ) -> Delegation | None:
     """把一条 delegate 事件派成子任务（落到父会话名下的一张常驻子槽）。
 
     ``parent_session`` 是注册表会话；回执通过它的观察者通道回灌。
     ``event`` 是归一化后的事件 dict（含 tool/target/text/raw）。
+    ``force`` 供显式「重跑」用：跳过外包开关检查（用户手点的动作，不是
+    父 agent 自己发的委派）。
     """
     prompt = _extract_prompt(event)
     if not prompt:
@@ -149,7 +152,7 @@ async def dispatch(
         return None
 
     # 外包模式未开启：不允许 agent 间派发。
-    if not getattr(parent_session.runtime, "outsourcing", False):
+    if not force and not getattr(parent_session.runtime, "outsourcing", False):
         logger.info("外包模式未开启，拒绝委派：%s", parent_session.sid)
         return None
 
@@ -184,6 +187,35 @@ async def dispatch(
     slot.runtime.delegation_id = task.id
     await _launch(parent_session, slot, task)
     return task
+
+
+async def rerun(child_sid: str) -> tuple[bool, str]:
+    """把这张子槽上最近一次委派任务原样再跑一遍。
+
+    子槽是常驻的：sid / 父子关系不变，只换一代进程。前端在子会话 EOF 后给
+    「重开」按钮用 —— 用户不该为了再跑一次而重新描述任务。
+    """
+    items = [t for t in _tasks.values() if t.child_sid == child_sid and t.prompt]
+    if not items:
+        return False, "这张子槽没有可重跑的任务记录"
+    last = max(items, key=lambda t: t.created_at)
+
+    slot = await sessions.registry.get(child_sid)
+    if slot is None:
+        return False, "子会话已回收，回不到原来的槽"
+    parent = await sessions.registry.get(last.parent_sid)
+    if parent is None:
+        return False, "父会话已回收，重跑没有回执落点"
+    if slot.runtime.is_busy():
+        return False, "子会话还在忙，等这一轮收口再重跑"
+
+    event = {"tool": "Task", "target": last.target, "text": last.prompt, "raw": {}}
+    task = await dispatch(parent, event, profile=last.profile, cwd=last.cwd, force=True)
+    if task is None:
+        return False, "任务描述为空，无法重跑"
+    if task.status == "failed":
+        return False, task.error or "重跑派发失败"
+    return True, f"已重跑 {task.profile} · {task.id}"
 
 
 async def _slot_for(parent_session, profile: str, label: str, cwd: str) -> "_Session":

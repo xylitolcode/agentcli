@@ -73,6 +73,7 @@ export type ControlMessage =
   | { type: 'agent-event'; event: { kind: string; file?: string; action?: string } }
   | { type: 'delegate-result'; delegation: Record<string, string> }
   | { type: 'input-rejected'; reason?: string }
+  | { type: 'rerun-error'; sid?: string; reason?: string }
 
 /** Django 模板注入的启动数据 */
 export type Bootstrap = {

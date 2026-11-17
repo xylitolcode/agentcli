@@ -402,14 +402,29 @@ async def terminal_ws(scope, receive, send) -> None:
 
     if sid_param:
         existing = await sessions.registry.get(sid_param)
+        rerun = (query.get("rerun") or [""])[0] == "1"
         if existing is not None and not existing.eof:
             session = existing
             logger.info("接回已有会话：%s", session.sid)
         elif existing is not None:
-            # 死会话：不复活进程，回一眼最终输出后正常关闭
-            await send({"type": "websocket.send", "bytes": existing.runtime.replay()})
-            await send({"type": "websocket.close", "code": 1000})
-            return
+            # 死会话：不复活进程，回一眼最终输出后正常关闭。
+            # 例外：子会话带 rerun=1 时，在常驻子槽里换一代进程再跑一次。
+            if rerun and existing.runtime.role == "child":
+                ok, note = await delegation.rerun(existing.sid)
+                if ok:
+                    session = existing
+                    logger.info("子会话重跑：%s（%s）", session.sid, note)
+                else:
+                    await send({"type": "websocket.send", "text": json.dumps(
+                        {"type": "rerun-error", "sid": existing.sid, "reason": note}
+                    )})
+                    await send({"type": "websocket.send", "bytes": existing.runtime.replay()})
+                    await send({"type": "websocket.close", "code": 1000})
+                    return
+            else:
+                await send({"type": "websocket.send", "bytes": existing.runtime.replay()})
+                await send({"type": "websocket.close", "code": 1000})
+                return
         else:
             # id 失效（过期被回收等）：前端应当丢掉本地 id，走新建
             await send({"type": "websocket.send", "text": json.dumps(

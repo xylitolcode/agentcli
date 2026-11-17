@@ -151,11 +151,14 @@ scripts/
 - **布局持久化**：主面板的 profile/sid/prompt 与 activeSid 落 localStorage，刷新
   或重开项目按原样还原；URL 带一个布局里没有的 sid（分享链接）时只单开它。子会话
   面板是观察窗，不持久化。
-- **「重开」语义**：离线时回原会话（Shift+点击新开）；会话已 `ended` 则视为
+- **「重开」语义**：离线时回原会话（Shift+点击新开）；主会话已 `ended` 则视为
   「用同一任务再跑一次」——先 `term.reset()` 擦画面再 `fresh` 重连，避免只回放
-  旧缓冲。`usePty` 在 `close 1000` 时保留 sid，房间条才能认出已结束面板。
-- 已知边界：子会话面板结束后「重开」隐藏（agent 没任务起不来）；WebGL 在多面板下
-  若上下文丢失会自退到 DOM 渲染。
+  旧缓冲。**委派子会话**已 `ended` 时改为带 `rerun=1` 接回同一张子槽：服务端
+  `delegation.rerun()` 找该槽最近一条委派任务，用同一 prompt 再派一轮（sid / 父子
+  / 槽身份不变，只换一代进程）。`usePty` 在 `close 1000` 时保留 sid，房间条才能
+  认出已结束面板。
+- 已知边界：没有委派台账的普通子会话（WS `parent=` 手动派生）没有「重开」；
+  WebGL 在多面板下若上下文丢失会自退到 DOM 渲染。
 
 ## 4. 已验证结论（探针实测，样本在 .event-sample/）
 
@@ -219,7 +222,7 @@ claude / qwen 的 `Task`/`agent` 工具在 CLI 进程内部**已经自己跑了�
   在建会话时进 WS query；shell profile 只给「新终端」。
 - 顺手补的两个缺陷：终端首帧字节先于 xterm 实例到达会丢（`pendingWrites` 缓冲）；
   带子槽父会话 30s 回收会级联清子槽（放宽到 300s）。
-- 遗留边界：面板上限 6；子会话结束后「重开」按钮隐藏（agent 无任务起不来）。
+- 遗留边界：面板上限 6；没有委派台账的普通子会话（WS `parent=` 派生）没有「重开」。
 
 ### ✅ P3 收尾：布局持久化 + 「重开」语义（本轮完成）
 - 主面板布局落 localStorage（`agentcli.panels.${host}.${projectId}`）：只存有 sid
@@ -229,7 +232,14 @@ claude / qwen 的 `Task`/`agent` 工具在 CLI 进程内部**已经自己跑了�
   建会话后从 query 删除，避免过期重建复跑旧任务。
 - ended 面板「重开」= 同一任务再跑一次（`fresh = shiftKey || status==='ended'`，
   先 `term.reset()`）；`usePty` 的 `close 1000` 改为保留 sid，房间条可继续认出它。
-- 回归：typecheck、build；布局落盘/还原与两面板 shell 实测通过。
+- **子会话原地重跑**：子槽是常驻观察窗，进程结束后「重开」改为 `rerun=1` 接回同一
+  sid。服务端 `delegation.rerun(child_sid)` 取该槽最近一条带 prompt 的委派，用
+  `dispatch(..., force=True)` 绕过父 agent 外包开关再派一轮；失败回 `rerun-error`
+  文本帧。前端 `rerunOnEnded = isChild && meta.delegation` 控制按钮显隐与文案，点击
+  时 `reconnect({rerun:true})`（不改 sid、不落状态）。
+- 回归：typecheck、build；`scripts/check_delegation.py` 新增「重跑接回同一 sid /
+  台账多一条 / 新任务收口」三项，全 21 项通过；界面点「重开」实测子槽台账 1→2。
+
 
 ### P4 产品待办（早先列出，未做）
 - 鉴权与会话按用户隔离；审计日志；项目台账增删改接口/admin 录入；

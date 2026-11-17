@@ -50,10 +50,13 @@ python manage.py test console.tests.<类>.<方法>
   一遍。主面板布局另存 `agentcli.panels.${host}.${projectId}`：只存有 sid 的主面板
   `{profile,sid,prompt}` + `activeSid`（200ms 防抖），刷新时 URL 的 sid 命中布局就
   整体还原、没命中按分享链接单开；`关闭全部` 清布局；子面板不持久化。
-- **「重开」按钮语义**：`status==='offline'` 回原会话（Shift+点击新开）；`ended`
+- **「重开」按钮语义**：`status==='offline'` 回原会话（Shift+点击新开）；主会话 `ended`
   视为「用同一任务再跑一次」——`fresh = shiftKey || status==='ended'`，先
-  `term.reset()` 清画面再重连。`usePty` 在 `close 1000` 时**保留 sid**，房间条才能
-  认出已结束面板；重连前先 `term.reset()`，避免旧内容和回放重叠。
+  `term.reset()` 清画面再重连。委派子会话 `ended` 时改走 `rerun`：`usePty` 在 query 里
+  带 `rerun=1`（sid 不变、不落状态），服务端 `delegation.rerun(child_sid)` 取该槽最近
+  一条委派任务原样再派一轮（`dispatch(..., force=True)`，失败回 `rerun-error`）。
+  `usePty` 在 `close 1000` 时**保留 sid**，房间条才能认出已结束面板；重连前先
+  `term.reset()`，避免旧内容和回放重叠。
 - **项目体系**：`console/models.py:Project` 维护台账（name/path/agent/enabled），
   `console/projects.py` 负责播种、查询、路径拼接。`CONSOLE_PROJECTS_ROOT` 是总目录，
   未选项目时守门根 = 总目录；进入项目后 `files.resolve(rel, project_id)` 收窄到项目根。
@@ -184,6 +187,10 @@ python manage.py test console.tests.<类>.<方法>
   delegate 事件，前端那帧 `outsourcing` 控制消息来不及，所以开关要能走 URL。
   前端「派任务」入口就是把这两项拼进 query；`prompt` 即使带了 `sid` 也一直拼着，
   会话过期重建时能复用同一任务。
+- **子会话重跑参数 `rerun=1`**：只与 `sid` 一起出现，表示「这个槽已 eof，用上一轮
+  委派任务原地再跑一次」。服务端在 `sid` 分支里看到 `eof && role=='child'` 才进
+  `delegation.rerun()`；成功就把 `session` 帧/回放照常走，失败回 `rerun-error` 后
+  `close 1000`。活会话带 `rerun` 不特殊处理，前端也只在本次连接拼这一位，不落状态。
 - **测试桩**：`CONSOLE_ENABLE_STUB=1` 时 settings 才登记 `stub` profile（跑
   `scripts/stub_agent.py`，不调模型、不联网，按 prompt 吐 stream-json）。
   `scripts/check_delegation.py` 自己起 8011 端口的 uvicorn 跑全套桩测；测试桩的

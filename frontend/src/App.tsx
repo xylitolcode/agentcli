@@ -472,9 +472,12 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
             <div className="panel-grid min-h-0 flex-1 p-2" data-cols={columns}>
               {panels.map((panel) => {
                 const isChild = panel.meta?.role === 'child'
+                // 委派子槽能「原槽重跑」上一轮任务；普通子会话没有台账可依
+                const rerunOnEnded = isChild && !!panel.meta?.delegation
                 const kind = bootstrap.profiles.find((p) => p.name === panel.profile)?.kind
                 // shell 空着也能重开；agent 必须还有任务，否则会话起不来
-                const restartable = kind === 'shell' || panel.prompt.trim().length > 0
+                const restartable =
+                  kind === 'shell' || panel.prompt.trim().length > 0 || rerunOnEnded
                 const title = isChild
                   ? `↳ ${panel.meta?.label || panel.profile}`
                   : panel.profile
@@ -497,6 +500,7 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
                     outsourcing={outsourcing}
                     active={panel.key === activeKey}
                     restartable={restartable}
+                    rerunOnEnded={rerunOnEnded}
                     title={title}
                     subtitle={subtitle}
                     ref={(handle) => {

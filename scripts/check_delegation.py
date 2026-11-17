@@ -232,6 +232,29 @@ async def main() -> int:
     check("父会话名下仍只有一张子槽", len(seq_kids) == 1, str(len(seq_kids)))
     await ws.close()
 
+    # 2.5) 子会话重跑：EOF 后带 rerun=1 接回同一张槽，换一代进程再跑一次
+    csid = seq_tasks[0]["child_sid"] if seq_tasks else ""
+    if csid:
+        url = f"ws://127.0.0.1:{PORT}/ws/terminal/?profile=stub&sid={csid}&rerun=1"
+        async with websockets.connect(url) as rw:
+            frames = await _wait_frames(
+                rw, 20, until=lambda fs: any(f.get("type") == "session" for f in fs)
+            )
+            sess = next((f for f in frames if f.get("type") == "session"), {})
+            check("重跑接回同一个 sid", bool(sess) and sess.get("sid") == csid,
+                  str(sess.get("sid")))
+            rerun_tasks = []
+            for _ in range(30):
+                rerun_tasks = [t for t in _delegations(sid2) if t["child_sid"] == csid]
+                if len(rerun_tasks) >= 3 and rerun_tasks[-1]["status"] in ("done", "failed"):
+                    break
+                await asyncio.sleep(0.4)
+            check("重跑多出一条委派台账", len(rerun_tasks) == 3,
+                  json.dumps([(t["status"], t["id"]) for t in rerun_tasks])[:120])
+            latest = rerun_tasks[-1] if rerun_tasks else {}
+            check("重跑任务落在原槽且收口", latest.get("status") == "done" and latest.get("child_sid") == csid,
+                  str(latest.get("status")))
+
     # 3) 忙锁：慢任务没跑完时第二个委派被拒
     ws, sid3, _ = await _open_task("busy:lock")
     busy_frames = await _wait_frames(ws, 12, until=lambda fs: len(_results(fs)) >= 2)
