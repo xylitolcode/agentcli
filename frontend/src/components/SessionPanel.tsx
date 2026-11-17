@@ -266,8 +266,17 @@ export function SessionPanel({
           <span className={`text-[10.5px] ${STATUS_STYLE[status]}`}>{STATUS_TEXT[status]}</span>
           {(status === 'offline' || (status === 'ended' && restartable)) && (
             <button
-              onClick={(event) => reconnect({ fresh: event.shiftKey })}
-              title="重连回原会话（Shift+点击：新开会话）"
+              onClick={(event) => {
+                const fresh = event.shiftKey || status === 'ended'
+                // 另起会话先把旧画面擦掉，不然新旧输出会叠在一起
+                if (fresh) termRef.current?.reset()
+                reconnect({ fresh })
+              }}
+              title={
+                status === 'ended'
+                  ? '重开：用同一任务再跑一次'
+                  : '重连回原会话（Shift+点击：新开会话）'
+              }
               className="rounded-[5px] border border-transparent px-1 py-px text-[10.5px] text-dim hover:border-line hover:bg-line-soft hover:text-fg"
             >
               重开

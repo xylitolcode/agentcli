@@ -65,10 +65,13 @@ scripts/
 - 进程退出进 `dead`，留 `DEAD_TTL=30s` 回看；**带常驻子槽的父会话放宽到
   `DEAD_TTL_WITH_CHILDREN=300s`**（否则级联清子槽，子面板没得看）；空闲
   `IDLE_TTL=300s` 回收，扫描周期 `SWEEP_INTERVAL=30s`。
-- **URL/localStorage 只记主面板**：多面板布局不持久化，地址栏跟最近活动过的
-  主会话（`prompt` 建会话后即从 query 删除）；子会话面板是临时观察窗。刷新回来
-  落到那个主会话。`localStorage` 兜底时连 profile 一起比对，防止跨 profile
-  接错 sid。
+- **URL 只记主面板，布局单独落 localStorage**：地址栏跟最近活动过的主会话
+  （`prompt` 建会话后即从 query 删除）；子会话面板是临时观察窗，不写 URL、也不
+  进布局。`localStorage` 的兜底 sid 连 profile 一起比对，防止跨 profile 接错。
+- **多面板布局持久化（P3 收尾）**：key 为 `agentcli.panels.${host}.${projectId}`，
+  只存主面板（必须已有 sid）的 `{profile,sid,prompt}` 数组 + `activeSid`，200ms
+  防抖写入；刷新时若 URL 的 sid 在布局里就整体还原并把 active 定到它，不在就按
+  「分享链接」单开一个。`关闭全部` 同时清布局。子会话面板不持久化。
 
 ### 3.2 项目体系（已完成）
 - `Project` 模型（name/path/agent/enabled/note）；总目录 `~/projects`，进来先选
@@ -145,8 +148,14 @@ scripts/
   `pendingWrites`，`term.open` 后补写，短命会话不会留下空面板。
 - **文件联动 / 外包回执 / 忙锁拒绝**：仍是每个面板就地写终端（蓝/黄标色走全局
   `fileMarks`，回执与 `input-rejected` 写在发起面板里）。
-- 已知边界：多面板布局不持久化（URL 只记主面板）；子会话面板结束后「重开」隐藏
-  （agent 没任务起不来）；WebGL 在多面板下若上下文丢失会自退到 DOM 渲染。
+- **布局持久化**：主面板的 profile/sid/prompt 与 activeSid 落 localStorage，刷新
+  或重开项目按原样还原；URL 带一个布局里没有的 sid（分享链接）时只单开它。子会话
+  面板是观察窗，不持久化。
+- **「重开」语义**：离线时回原会话（Shift+点击新开）；会话已 `ended` 则视为
+  「用同一任务再跑一次」——先 `term.reset()` 擦画面再 `fresh` 重连，避免只回放
+  旧缓冲。`usePty` 在 `close 1000` 时保留 sid，房间条才能认出已结束面板。
+- 已知边界：子会话面板结束后「重开」隐藏（agent 没任务起不来）；WebGL 在多面板下
+  若上下文丢失会自退到 DOM 渲染。
 
 ## 4. 已验证结论（探针实测，样本在 .event-sample/）
 
@@ -210,8 +219,17 @@ claude / qwen 的 `Task`/`agent` 工具在 CLI 进程内部**已经自己跑了�
   在建会话时进 WS query；shell profile 只给「新终端」。
 - 顺手补的两个缺陷：终端首帧字节先于 xterm 实例到达会丢（`pendingWrites` 缓冲）；
   带子槽父会话 30s 回收会级联清子槽（放宽到 300s）。
-- 遗留边界：多面板布局不做持久化（URL 只记主面板）；面板上限 6；子会话结束后
-  「重开」按钮隐藏（agent 无任务起不来）。
+- 遗留边界：面板上限 6；子会话结束后「重开」按钮隐藏（agent 无任务起不来）。
+
+### ✅ P3 收尾：布局持久化 + 「重开」语义（本轮完成）
+- 主面板布局落 localStorage（`agentcli.panels.${host}.${projectId}`）：只存有 sid
+  的主面板 `{profile,sid,prompt}` + `activeSid`，200ms 防抖；刷新时 URL 的 sid 命中
+  布局就整体还原，命中不了按分享链接单开；`关闭全部` 清布局；子面板不持久化。
+- URL「最近活动主面板」细化：新增 `lastMainKey`，开子面板不再抢地址栏；`prompt`
+  建会话后从 query 删除，避免过期重建复跑旧任务。
+- ended 面板「重开」= 同一任务再跑一次（`fresh = shiftKey || status==='ended'`，
+  先 `term.reset()`）；`usePty` 的 `close 1000` 改为保留 sid，房间条可继续认出它。
+- 回归：typecheck、build；布局落盘/还原与两面板 shell 实测通过。
 
 ### P4 产品待办（早先列出，未做）
 - 鉴权与会话按用户隔离；审计日志；项目台账增删改接口/admin 录入；
@@ -276,6 +294,11 @@ CONSOLE_ENABLE_STUB=1 setsid .venv/bin/uvicorn agentcli.asgi:application --host 
   `.xterm-char-measure-element`（一排重复的 `$`/`n`/`次`）会混进页面文本，它是
   量字宽用的隐藏探针，不是终端真的输出了乱码。判断终端内容请读
   `.xterm-rows` 的码点。
+- **「面板空白」先查页面可见性**：`document.visibilityState === 'hidden'`（浏览器
+  窗口被遮挡/最小化）时 rAF 被节流，xterm 的 DOM 渲染器不刷新，`.xterm-rows` 全空
+  但 buffer 里其实有内容（`term.buffer.active.getLine(0)` 能读到提示符）。这是工具
+  侧假象，不是丢字节；验证必须在前台可见标签页。Aha 多标签下 `bu` 会自己回到可见
+  标签页，`BU_REF_STALE` 频繁，操作前重新 snapshot。
 
 ## 9. 本机环境锚点
 - 已装 CLI（`~/.local/bin/`）：claude 2.1.325、codex-cli 0.169.0、qwen 0.27.4。

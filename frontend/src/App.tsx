@@ -32,6 +32,7 @@ const MAX_PANELS = 6
 
 const SESSION_KEY = `agentcli.session.${location.host}`
 const SESSION_PROFILE_KEY = `agentcli.profile.${location.host}`
+const layoutKey = (projectId: string) => `agentcli.panels.${location.host}.${projectId}`
 
 /** 一个面板 = 一个前台会话的观察者。key 在拿到 sid 之前也稳定 */
 type Panel = {
@@ -90,6 +91,44 @@ function promptPreview(prompt: string, max = 28): string {
   return line.length > max ? `${line.slice(0, max)}…` : line
 }
 
+/** 持久化的只有主面板：子会话面板是临时观察窗，刷新后从房间条重新点开。 */
+type SavedPanel = { profile: string; sid: string; prompt: string }
+type SavedLayout = { panels: SavedPanel[]; activeSid: string }
+
+function readLayout(projectId: string): SavedLayout | null {
+  try {
+    const raw = localStorage.getItem(layoutKey(projectId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as SavedLayout
+    if (!Array.isArray(parsed.panels)) return null
+    const panels = parsed.panels.filter(
+      (item): item is SavedPanel =>
+        !!item && typeof item.sid === 'string' && item.sid.length > 0 && typeof item.profile === 'string',
+    )
+    return panels.length > 0
+      ? { panels, activeSid: typeof parsed.activeSid === 'string' ? parsed.activeSid : '' }
+      : null
+  } catch {
+    return null
+  }
+}
+
+function saveLayout(projectId: string, panels: Panel[], activeKey: string) {
+  const mains = panels.filter((panel) => !panel.meta && panel.sid)
+  if (mains.length === 0) {
+    localStorage.removeItem(layoutKey(projectId))
+    return
+  }
+  const active = mains.find((panel) => panel.key === activeKey)
+  const payload: SavedLayout = {
+    panels: mains
+      .slice(0, MAX_PANELS)
+      .map((panel) => ({ profile: panel.profile, sid: panel.sid ?? '', prompt: panel.prompt })),
+    activeSid: active?.sid ?? '',
+  }
+  localStorage.setItem(layoutKey(projectId), JSON.stringify(payload))
+}
+
 export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
   const query = useMemo(readQuery, [])
 
@@ -102,34 +141,50 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
 
   /**
-   * 多面板：初始只还原「上一个活动会话」这一个面板。
-   * 完整布局不做持久化 —— URL 里是活动面板的 sid，刷新回来能接着看；
-   * 子会话面板按需从房间条点开，比把一堆 sid 塞进 URL 干净。
+   * 多面板：初始还原「上一个布局」（只含主面板）。
+   * 显式带 sid 的链接（分享/收藏）只在保存的布局里没有这个 sid 时单独开一个；
+   * 子会话面板是临时观察窗，不持久化，刷新后从房间条重新点开。
    */
-  const [panels, setPanels] = useState<Panel[]>(() => {
+  const initialLayout = useMemo(() => {
+    const makePanel = (profile: string, sid: string, prompt: string): Panel => ({
+      key: nextPanelKey(),
+      profile,
+      initialSid: sid,
+      sid: sid || null,
+      prompt,
+      meta: null,
+    })
+    const validProfile = (name: string) => bootstrap.profiles.some((p) => p.name === name)
+
+    const saved = projectId ? readLayout(projectId) : null
+    if (saved && (!query.sid || saved.panels.some((p) => p.sid === query.sid))) {
+      const restored = saved.panels
+        .filter((p) => validProfile(p.profile))
+        .slice(0, MAX_PANELS)
+        .map((p) => makePanel(p.profile, p.sid, p.prompt))
+      if (restored.length > 0) {
+        const wanted = query.sid || saved.activeSid
+        const active = restored.find((p) => p.sid === wanted) ?? restored[0]
+        return { panels: restored, activeKey: active.key }
+      }
+    }
+
     // localStorage 只在 URL 没给足信息时兜底：显式带了 prompt 就是「开新会话」，
     // 记着 profile 是为了别把 bash 的 sid 接到 claude 面板上（同一个浏览器里
     // 所有标签页共享 localStorage）。
     const storedSid = query.prompt ? '' : (localStorage.getItem(SESSION_KEY) ?? '')
     const storedProfile = localStorage.getItem(SESSION_PROFILE_KEY)
-    const saved =
+    const savedSid =
       query.sid ||
       (!query.profile || !storedProfile || query.profile === storedProfile ? storedSid : '')
-    const profile = bootstrap.profiles.some((p) => p.name === query.profile)
-      ? query.profile
-      : bootstrap.defaultProfile
-    return [
-      {
-        key: nextPanelKey(),
-        profile,
-        initialSid: saved,
-        sid: saved || null,
-        prompt: query.prompt,
-        meta: null,
-      },
-    ]
-  })
-  const [activeKey, setActiveKey] = useState(() => panels[0]?.key ?? '')
+    const profile = validProfile(query.profile) ? query.profile : bootstrap.defaultProfile
+    const panel = makePanel(profile, savedSid, query.prompt)
+    return { panels: [panel], activeKey: panel.key }
+    // 只在首次渲染算一次；之后由 URL/面板操作驱动
+  }, [])
+
+  const [panels, setPanels] = useState<Panel[]>(() => initialLayout.panels)
+  const [activeKey, setActiveKey] = useState(() => initialLayout.activeKey)
   const [stats, setStats] = useState<Record<string, PanelStat>>({})
 
   const handles = useRef(new Map<string, SessionHandle>())
@@ -235,7 +290,7 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
   // 写进地址栏，刷新回来只会看到一个已过期的空壳。收藏/刷新始终落到主会话。
   // 「主面板」取最近一个活动过的主会话面板（不是第一个），否则点开子面板看屏
   // 回来，地址栏会莫名其妙跳回别的会话。
-  const lastMainKey = useRef(panels[0]?.key ?? '')
+  const lastMainKey = useRef(initialLayout.activeKey)
   useEffect(() => {
     const panel = panels.find((item) => item.key === activeKey)
     if (panel && !panel.meta) lastMainKey.current = panel.key
@@ -257,6 +312,13 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
     }
     syncUrl(profile, sid, projectId)
   }, [activeKey, bootstrap.defaultProfile, panels, projectId])
+
+  // 布局落盘防抖 200ms：连开面板/关面板时别每次都写 localStorage
+  useEffect(() => {
+    if (!projectId) return
+    const timer = window.setTimeout(() => saveLayout(projectId, panels, activeKey), 200)
+    return () => window.clearTimeout(timer)
+  }, [activeKey, panels, projectId])
 
   /* ---------------- 面板管理 ---------------- */
 
@@ -288,7 +350,8 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
     setActiveKey('')
     localStorage.removeItem(SESSION_KEY)
     localStorage.removeItem(SESSION_PROFILE_KEY)
-  }, [])
+    if (projectId) localStorage.removeItem(layoutKey(projectId))
+  }, [projectId])
 
   const openSession = useCallback(
     (info: SessionInfo) => {

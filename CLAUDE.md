@@ -42,12 +42,18 @@ python manage.py test console.tests.<类>.<方法>
   PTY 可读回调在事件循环线程上，不能直接 `await send` —— 输出经连接自己的
   `outbox` 队列由 `drain_outbox` 协程串行发出；两个任务谁先结束都要取消另一个，
   只 `await` 读任务会让发送任务跟着断连一起挂住。
-- **URL 状态**：`profile` / `sid` / `project` 以页面 query 为准，启动时读 URL，
-  切换/收到 sid 后 `history.replaceState` 写回；`localStorage` 仅兜底（连 profile
-  一起存，避免跨 profile 接错 sid）。多面板下地址栏跟**最近活动过的主面板**，
-  子会话面板是临时观察窗，不写地址栏 —— 否则刷新回来只剩一个已过期的子槽空壳。
-  `prompt` 建会话后立刻从 query 删除，否则过期重建会把旧任务再跑一遍。重连前先
-  `term.reset()` 清本地画面再接回放，避免旧内容和缓冲重叠。
+- **URL 状态与布局持久化**：`profile` / `sid` / `project` 以页面 query 为准，启动时
+  读 URL，切换/收到 sid 后 `history.replaceState` 写回；`localStorage` 的兜底 sid
+  连 profile 一起存，避免跨 profile 接错 sid。多面板下地址栏跟**最近活动过的主面板**
+  （`lastMainKey`），子会话面板是临时观察窗，不写地址栏 —— 否则刷新回来只剩一个
+  已过期的子槽空壳。`prompt` 建会话后立刻从 query 删除，否则过期重建会把旧任务再跑
+  一遍。主面板布局另存 `agentcli.panels.${host}.${projectId}`：只存有 sid 的主面板
+  `{profile,sid,prompt}` + `activeSid`（200ms 防抖），刷新时 URL 的 sid 命中布局就
+  整体还原、没命中按分享链接单开；`关闭全部` 清布局；子面板不持久化。
+- **「重开」按钮语义**：`status==='offline'` 回原会话（Shift+点击新开）；`ended`
+  视为「用同一任务再跑一次」——`fresh = shiftKey || status==='ended'`，先
+  `term.reset()` 清画面再重连。`usePty` 在 `close 1000` 时**保留 sid**，房间条才能
+  认出已结束面板；重连前先 `term.reset()`，避免旧内容和回放重叠。
 - **项目体系**：`console/models.py:Project` 维护台账（name/path/agent/enabled），
   `console/projects.py` 负责播种、查询、路径拼接。`CONSOLE_PROJECTS_ROOT` 是总目录，
   未选项目时守门根 = 总目录；进入项目后 `files.resolve(rel, project_id)` 收窄到项目根。
@@ -203,6 +209,13 @@ python manage.py test console.tests.<类>.<方法>
   会让引用每次都变，直接进依赖数组会把终端反复销毁重建。
 - **面板关闭 ≠ 杀会话**：`closePanel` 只是摘掉前端观察者，后端进程继续跑；再次点开
   同一 sid 会先回放缓冲。要终止进程请走重连后的终端输入。
+- **布局持久化只在 App 里做**：`readLayout`/`saveLayout`（`layoutKey(projectId)`）
+  读写 `agentcli.panels.${host}.${projectId}`，只存主面板，子面板是观察窗不落盘；
+  不要把这个逻辑挪进组件或 hook。
+- **验证终端内容先看页面可见性**：`document.visibilityState === 'hidden'` 时 rAF
+  被节流，xterm 的 DOM 渲染器不刷新，`.xterm-rows` 会全空但 buffer 有内容；这是
+  工具侧假象。验证必须在前台可见标签页，并读 `.xterm-rows` 而不是整页文本（后者
+  混入 `.xterm-char-measure-element` 的假重复字符）。
 - **样式只写 Tailwind 类**，颜色走 `@theme` 里的 token（`bg-panel`、`text-dim`、`border-line`），
   不要在组件里散落 `#0d1117` 这种字面量。伪元素、媒体查询这类写不进 class 的，
   放 `styles.css` 的 `@layer components`。
