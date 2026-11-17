@@ -172,7 +172,7 @@ export function SearchPane({ projectId, projectName, onClose, onOpen }: Props) {
       aria-pressed={mode === value}
       className={
         'px-2.5 py-[3px] text-[11px] ' +
-        (mode === value ? 'bg-[#0d1a26] text-accent' : 'text-dim hover:bg-line-soft hover:text-fg')
+        (mode === value ? 'bg-[rgba(110,243,200,0.09)] text-accent' : 'text-dim hover:bg-line-soft hover:text-fg')
       }
     >
       {label}
@@ -185,12 +185,12 @@ export function SearchPane({ projectId, projectName, onClose, onOpen }: Props) {
       onClick={onClose}
     >
       <section
-        className="flex max-h-[76vh] w-full max-w-[820px] flex-col overflow-hidden rounded-[10px] border border-line bg-[#0b1017] shadow-2xl"
+        className="flex max-h-[76vh] w-full max-w-[820px] flex-col overflow-hidden rounded-[2px] border border-line bg-panel shadow-[0_0_90px_rgba(0,0,0,0.7)]"
         onClick={(event) => event.stopPropagation()}
         aria-label="工作区搜索"
       >
-        <header className="flex shrink-0 items-center gap-2 border-b border-line bg-panel-2 px-3 py-2">
-          <span className="flex items-center overflow-hidden rounded-[4px] border border-line">
+        <header className="flex shrink-0 items-center gap-2 border-b border-line bg-[rgba(11,18,25,0.7)] px-3 py-2">
+          <span className="flex items-center overflow-hidden rounded-[1px] border border-line">
             {tab('content', '内容')}
             {tab('file', '文件名')}
           </span>
@@ -201,7 +201,7 @@ export function SearchPane({ projectId, projectName, onClose, onOpen }: Props) {
             onKeyDown={onKeyDown}
             placeholder={mode === 'content' ? '搜索代码内容（支持正则，走 ripgrep）' : '搜索文件名'}
             spellCheck={false}
-            className="min-w-0 flex-1 rounded-[5px] border border-line bg-[#0b1017] px-2 py-[5px] text-xs text-fg outline-none placeholder:text-faint focus:border-accent"
+            className="min-w-0 flex-1 rounded-[2px] border border-line bg-surface px-2 py-[5px] text-xs text-fg outline-none placeholder:text-faint focus:border-accent"
           />
           <span className="shrink-0 max-w-[26%] truncate text-[10.5px] text-faint" title={projectName}>
             {projectName}
@@ -238,7 +238,7 @@ export function SearchPane({ projectId, projectName, onClose, onOpen }: Props) {
                   onMouseEnter={() => setActive(index)}
                   className={
                     'flex w-full items-baseline gap-2 px-3 py-[3px] text-left ' +
-                    (isActive ? 'bg-[#0d1a26]' : 'hover:bg-line-soft')
+                    (isActive ? 'bg-[rgba(110,243,200,0.09)]' : 'hover:bg-line-soft')
                   }
                   title={row.kind === 'hit' ? `${row.path}:${row.line}` : row.path}
                 >
@@ -253,7 +253,7 @@ export function SearchPane({ projectId, projectName, onClose, onOpen }: Props) {
                     </>
                   ) : (
                     <>
-                      <span className="shrink-0 text-[#8b98a8]">
+                      <span className="shrink-0 text-dim">
                         <FileIcon />
                       </span>
                       <span className="min-w-0 flex-1 truncate text-[11.5px] text-fg">
@@ -269,7 +269,7 @@ export function SearchPane({ projectId, projectName, onClose, onOpen }: Props) {
             })}
         </div>
 
-        <footer className="flex shrink-0 items-center gap-3 border-t border-line bg-panel-2 px-3 py-1.5 text-[10.5px] text-faint">
+        <footer className="flex shrink-0 items-center gap-3 border-t border-line px-3 py-1.5 text-[10.5px] text-faint">
           <span className="truncate">{summary}</span>
           <span className="ml-auto shrink-0">↑↓ 选择 · Enter 打开 · Esc 关闭</span>
         </footer>

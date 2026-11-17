@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 
+import { AgentRail } from './components/AgentRail'
 import { CodeViewer } from './components/CodeViewer'
 import { DiffViewer } from './components/DiffViewer'
 import type { DiffMode } from './components/DiffViewer'
@@ -12,7 +13,6 @@ import { SearchPane } from './components/SearchPane'
 import { SessionPanel } from './components/SessionPanel'
 import type { SessionHandle } from './components/SessionPanel'
 import { Splitter } from './components/Splitter'
-import { StatusBar } from './components/StatusBar'
 import { WorkspaceBar } from './components/WorkspaceBar'
 import { useFileTree } from './hooks/useFileTree'
 import { useGit } from './hooks/useGit'
@@ -535,15 +535,15 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
   if (!projectId) {
     return (
       <div className="flex h-full flex-col">
-        <Header label={bootstrap.rootPath} />
-        <ProjectPicker projects={bootstrap.projects} onPick={enterProject} />
-        <StatusBar
+        <Header
+          label={bootstrap.rootPath}
           status="connecting"
           renderMode="dom"
           cols={0}
           rows={0}
           fontOk={fontOk}
         />
+        <ProjectPicker projects={bootstrap.projects} onPick={enterProject} />
       </div>
     )
   }
@@ -557,24 +557,33 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
       <Header
         label={project ? `${project.name} · ${project.path}` : bootstrap.rootPath}
         onSearch={() => setSearchOpen(true)}
+        status={activeStat?.status ?? 'ended'}
+        renderMode={activeStat?.renderMode ?? 'dom'}
+        cols={activeStat?.cols ?? 0}
+        rows={activeStat?.rows ?? 0}
+        fontOk={fontOk}
       />
 
-      <main
-        className="workspace min-h-0 flex-1 px-3.5 pb-2.5 pt-3"
-        style={workspaceStyle}
-      >
-        <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[10px] border border-line bg-panel">
+      <div className="app-body" style={workspaceStyle}>
+        <AgentRail
+          profiles={bootstrap.profiles}
+          openProfiles={panels.filter((panel) => !panel.meta).map((panel) => panel.profile)}
+          activeProfile={activePanel?.profile ?? ''}
+          panelCount={panels.length}
+          maxPanels={MAX_PANELS}
+          status={activeStat?.status ?? 'ended'}
+          onPickAgent={pickAgent}
+          onNewShell={newShell}
+        />
+
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <WorkspaceBar
-            profiles={bootstrap.profiles}
-            openProfiles={panels.filter((panel) => !panel.meta).map((panel) => panel.profile)}
             activeProfile={activePanel?.profile ?? ''}
+            activeSid={activePanel?.sid ?? null}
             outsourcing={outsourcing}
             sessions={sessions}
-            activeSid={activePanel?.sid ?? null}
             panelCount={panels.length}
             maxPanels={MAX_PANELS}
-            onPickAgent={pickAgent}
-            onNewShell={newShell}
             onToggleOutsourcing={toggleOutsourcing}
             onOpenSession={openSession}
             onCloseAll={closeAll}
@@ -582,10 +591,10 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
 
           {panels.length === 0 ? (
             <div className="flex flex-1 items-center justify-center px-4 text-xs text-faint">
-              没有打开的会话 · 上面点个 agent 按钮直接开
+              没有打开的会话 · 左侧 rail 点一个 agent 直接开
             </div>
           ) : (
-            <div className="panel-grid min-h-0 flex-1 p-2" data-cols={columns}>
+            <div className="panel-grid min-h-0 flex-1" data-cols={columns}>
               {panels.map((panel) => {
                 const prof = bootstrap.profiles.find((p) => p.name === panel.profile)
                 const isChild = panel.meta?.role === 'child'
@@ -640,10 +649,10 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
               })}
             </div>
           )}
-        </section>
+        </main>
 
         <Splitter onDrag={handleDrag} onDragEnd={() => undefined} />
-        <div className="flex min-h-0 min-w-0 flex-col gap-2.5">
+        <div className="side-column">
           <FileTreePane
             dirs={dirs}
             marks={treeMarks}
@@ -666,7 +675,7 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
             onOpenDiff={handleOpenDiff}
           />
         </div>
-      </main>
+      </div>
 
       {view?.kind === 'file' && (
         <CodeViewer
@@ -711,14 +720,6 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
           {notice.text}
         </div>
       )}
-
-      <StatusBar
-        status={activeStat?.status ?? 'ended'}
-        renderMode={activeStat?.renderMode ?? 'dom'}
-        cols={activeStat?.cols ?? 0}
-        rows={activeStat?.rows ?? 0}
-        fontOk={fontOk}
-      />
     </div>
   )
 }

@@ -14,10 +14,10 @@ const KIND_LABEL: Record<string, string> = {
 
 const KIND_CLASS: Record<string, string> = {
   modified: 'text-warn',
-  added: 'text-[#7ee787]',
+  added: 'text-accent',
   deleted: 'text-err',
-  renamed: 'text-[#79c0ff]',
-  untracked: 'text-[#79c0ff]',
+  renamed: 'text-accent',
+  untracked: 'text-accent',
   conflicted: 'text-err',
 }
 
@@ -48,7 +48,7 @@ export function GitPane({ git, loading, error, onRefresh, onOpenDiff, fill = fal
   return (
     <aside
       className={
-        'flex min-h-0 flex-col overflow-hidden rounded-[10px] border border-line bg-panel ' +
+        'flex min-h-0 flex-col overflow-hidden bg-panel ' +
         (fill
           ? open
             ? 'min-h-[120px] flex-1'
@@ -59,13 +59,13 @@ export function GitPane({ git, loading, error, onRefresh, onOpenDiff, fill = fal
       }
       aria-label="Git 只读区"
     >
-      <div className="flex shrink-0 items-center gap-2 border-b border-line bg-panel-2 px-2.5 py-[7px]">
+      <div className="flex shrink-0 items-center gap-2 border-b border-line px-2.5 py-[6px]">
         <span className="text-dim"><GitBranchIcon /></span>
-        <span className="min-w-0 truncate text-xs text-fg">
+        <span className="min-w-0 truncate text-[12px] text-fg">
           {git?.repo ? git.branch : 'Git'}
         </span>
         {git?.repo && dirty > 0 && (
-          <span className="shrink-0 rounded-[4px] border border-[#4b3a1c] bg-[#241b0d] px-[5px] text-[10px] text-warn">
+          <span className="shrink-0 rounded-[1px] border border-[rgba(255,180,84,0.35)] bg-[rgba(255,180,84,0.08)] px-[5px] text-[10px] text-warn">
             {dirty} 改动
           </span>
         )}
@@ -78,16 +78,18 @@ export function GitPane({ git, loading, error, onRefresh, onOpenDiff, fill = fal
         )}
         <span className="ml-auto flex shrink-0 items-center gap-0.5">
           <button
+            type="button"
             onClick={onRefresh}
             title="刷新 git 状态"
-            className="flex items-center justify-center rounded-[5px] border border-transparent p-[3px] leading-none text-dim hover:border-line hover:bg-line-soft hover:text-fg"
+            className="flex items-center justify-center rounded-[2px] border border-transparent p-[3px] leading-none text-dim hover:border-line hover:bg-line-soft hover:text-fg"
           >
             <RefreshIcon />
           </button>
           <button
+            type="button"
             onClick={() => setOpen((value) => !value)}
             title={open ? '折叠 Git 区' : '展开 Git 区'}
-            className="flex items-center justify-center rounded-[5px] border border-transparent p-[3px] leading-none text-dim hover:border-line hover:bg-line-soft hover:text-fg"
+            className="flex items-center justify-center rounded-[2px] border border-transparent p-[3px] leading-none text-dim hover:border-line hover:bg-line-soft hover:text-fg"
           >
             <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor"
               strokeWidth="1.4" className={open ? 'rotate-180' : ''} aria-hidden="true">
@@ -114,6 +116,7 @@ export function GitPane({ git, loading, error, onRefresh, onOpenDiff, fill = fal
                 {files.map((file) => (
                   <button
                     key={(file.from ? `${file.from}→` : '') + file.path}
+                    type="button"
                     onClick={() => onOpenDiff(file)}
                     title={
                       file.kind === 'deleted'
@@ -122,7 +125,7 @@ export function GitPane({ git, loading, error, onRefresh, onOpenDiff, fill = fal
                           ? `${file.from} → ${file.path}`
                           : file.path
                     }
-                    className="flex w-full items-center gap-1.5 px-2.5 py-[3px] text-left leading-[1.5] hover:bg-[#151b23]"
+                    className="flex w-full items-center gap-1.5 px-2.5 py-[3px] text-left leading-[1.5] hover:bg-line-soft"
                   >
                     <span className={'w-3 shrink-0 text-[10px] ' + statusTone(file)}>
                       {KIND_LABEL[file.kind] || '?'}
@@ -143,8 +146,8 @@ export function GitPane({ git, loading, error, onRefresh, onOpenDiff, fill = fal
               </div>
 
               <div className="shrink-0 border-t border-line">
-                <div className="flex items-center gap-2 px-2.5 py-[5px] text-[10.5px] text-dim">
-                  <span>最近提交</span>
+                <div className="flex items-center gap-2 px-2.5 py-[5px] text-[10px] text-ghost">
+                  <span className="uppercase tracking-[0.12em]">commits</span>
                   <span className="text-faint">{commits.length}</span>
                 </div>
                 <div className="max-h-[112px] overflow-auto pb-1">
@@ -154,7 +157,7 @@ export function GitPane({ git, loading, error, onRefresh, onOpenDiff, fill = fal
                       className="flex items-baseline gap-2 px-2.5 py-[3px]"
                       title={`${commit.author} · ${commit.when}\n${commit.subject}`}
                     >
-                      <span className="shrink-0 font-mono text-[10.5px] text-[#79c0ff]">
+                      <span className="shrink-0 font-mono text-[10.5px] text-accent">
                         {commit.hash}
                       </span>
                       <span className="min-w-0 flex-1 truncate text-[11px] text-fg">

@@ -300,7 +300,7 @@ export function CodeViewer({ path, projectId, onClose, onInsert, focusLine }: Pr
       className={
         'px-[7px] py-[2px] text-[10.5px] leading-[1.5] ' +
         (mdMode === mode
-          ? 'bg-[#0d1a26] text-accent '
+          ? 'bg-[rgba(110,243,200,0.09)] text-accent '
           : 'text-dim hover:bg-line-soft hover:text-fg ') +
         (disabled ? 'cursor-not-allowed opacity-40 ' : '') +
         (mode === 'source' ? 'border-l border-line' : '')
@@ -316,26 +316,26 @@ export function CodeViewer({ path, projectId, onClose, onInsert, focusLine }: Pr
       onClick={onClose}
     >
       <section
-        className="flex h-[88vh] w-full max-w-[1100px] flex-col overflow-hidden rounded-[10px] border border-line bg-[#0b1017] shadow-2xl"
+        className="flex h-[88vh] w-full max-w-[1100px] flex-col overflow-hidden rounded-[2px] border border-line bg-panel shadow-[0_0_90px_rgba(0,0,0,0.7)]"
         onClick={(event) => event.stopPropagation()}
         aria-label="只读代码查看器"
       >
-        <header className="flex shrink-0 items-center gap-2 border-b border-line bg-panel-2 px-3 py-2">
-          <span className="shrink-0 text-[#8b98a8]"><FileIcon /></span>
+        <header className="flex shrink-0 items-center gap-2 border-b border-line bg-[rgba(11,18,25,0.7)] px-3 py-2">
+          <span className="shrink-0 text-dim"><FileIcon /></span>
           <span className="min-w-0 truncate text-xs text-fg" title={shownPath}>
             {shownPath}
           </span>
           {meta && <span className="shrink-0 text-[10.5px] text-faint">{meta}</span>}
           {data && !data.binary && !rendering && (
             <span
-              className="shrink-0 rounded-[4px] border border-line px-1 text-[10px] text-dim"
+              className="shrink-0 rounded-[1px] border border-line px-1 text-[10px] text-dim"
               title={language ? `按 ${language} 语法染色` : '没有可信语言标识，按纯文本显示'}
             >
               {language || '纯文本'}
             </span>
           )}
           {isMarkdown && data && !data.binary && (
-            <span className="flex shrink-0 items-center overflow-hidden rounded-[4px] border border-line">
+            <span className="flex shrink-0 items-center overflow-hidden rounded-[1px] border border-line">
               {modeButton('render', '渲染', tooBigToRender)}
               {modeButton('source', '源码')}
             </span>
@@ -346,14 +346,14 @@ export function CodeViewer({ path, projectId, onClose, onInsert, focusLine }: Pr
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
             <button
               onClick={() => onInsert(shownPath)}
-              className="rounded-[5px] border border-line px-2 py-1 text-[10.5px] text-dim hover:bg-line-soft hover:text-fg"
+              className="rounded-[2px] border border-line px-2 py-1 text-[10.5px] text-dim hover:bg-line-soft hover:text-fg"
               title="把文件路径插入当前终端（不是编辑内容）"
             >
               插入终端
             </button>
             <button
               onClick={onClose}
-              className="rounded-[5px] border border-transparent px-2 py-1 text-sm leading-none text-dim hover:border-line hover:bg-line-soft hover:text-fg"
+              className="rounded-[2px] border border-transparent px-2 py-1 text-sm leading-none text-dim hover:border-line hover:bg-line-soft hover:text-fg"
               title="关闭（Esc）"
             >
               ×
@@ -361,7 +361,7 @@ export function CodeViewer({ path, projectId, onClose, onInsert, focusLine }: Pr
           </span>
         </header>
 
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto bg-[#0b1017]">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto bg-panel">
           {loading && <div className="px-4 py-3 text-xs text-faint">读取文件…</div>}
           {error && <div className="px-4 py-3 text-xs text-err">读取失败：{error}</div>}
           {/* 前端已经按后缀拦过一道，这里是后端 binary 判定的兜底 */}
@@ -395,7 +395,7 @@ export function CodeViewer({ path, projectId, onClose, onInsert, focusLine }: Pr
           )}
         </div>
 
-        <footer className="flex shrink-0 items-center gap-3 border-t border-line bg-panel-2 px-3 py-1.5 text-[10.5px] text-faint">
+        <footer className="flex shrink-0 items-center gap-3 border-t border-line px-3 py-1.5 text-[10.5px] text-faint">
           <span>{rendering ? 'Markdown 渲染 · 只读' : '只读预览 · 不保存、不编辑'}</span>
           {isMarkdown && tooBigToRender && <span className="text-warn">文件过大，只给源码</span>}
           {data?.truncated && <span className="text-warn">文件过大，只显示前 512 KB</span>}

@@ -249,15 +249,23 @@ export function SessionPanel({
   return (
     <section
       data-panel={panelKey}
+      data-active={active ? '1' : '0'}
       onPointerDown={() => cbRef.current.onActivate()}
-      className={
-        'flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[10px] border bg-panel transition-colors ' +
-        (active ? 'border-[#2a4a6b]' : 'border-line')
-      }
+      className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface"
     >
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-line bg-panel-2 px-2 py-[5px]">
+      <div
+        className={
+          'flex shrink-0 items-center gap-1.5 border-b border-line px-2 py-[4px] ' +
+          (active
+            ? 'bg-[rgba(110,243,200,0.05)] shadow-[inset_2px_0_0_var(--color-phos)]'
+            : 'bg-transparent')
+        }
+      >
         <i className={`size-1.5 shrink-0 rounded-full ${DOT_STYLE[status]}`} />
-        <span className={`shrink-0 text-[11px] ${active ? 'text-fg' : 'text-dim'}`} title={profile}>
+        <span
+          className={`shrink-0 text-[10.5px] uppercase tracking-[0.08em] ${active ? 'text-accent' : 'text-dim'}`}
+          title={profile}
+        >
           {title}
         </span>
         {subtitle && (
@@ -267,7 +275,7 @@ export function SessionPanel({
         )}
         {kind === 'agent' && pty.mode && (
           <span
-            className="shrink-0 rounded border border-line px-1 text-[9.5px] leading-4 text-faint"
+            className="shrink-0 rounded-[1px] border border-line px-1 text-[9px] leading-4 text-faint"
             title={pty.mode === 'interactive' ? '原生 TUI，多轮对话归 CLI' : '一次性任务，跑完即退'}
           >
             {pty.mode === 'interactive' ? '交互' : '无头'}
@@ -302,7 +310,7 @@ export function SessionPanel({
                       : '重开：用同一任务再跑一次'
                   : '重连回原会话（Shift+点击：新开会话）'
               }
-              className="rounded-[5px] border border-transparent px-1 py-px text-[10.5px] text-dim hover:border-line hover:bg-line-soft hover:text-fg"
+              className="rounded-[2px] border border-transparent px-1 py-px text-[10.5px] text-dim hover:border-line hover:bg-line-soft hover:text-fg"
             >
               重开
             </button>
@@ -310,14 +318,15 @@ export function SessionPanel({
           <button
             onClick={onClose}
             title="关闭面板（不影响后端会话，可再点开）"
-            className="rounded-[5px] px-1 py-px text-[10.5px] text-faint hover:bg-line-soft hover:text-err"
+            aria-label="关闭面板"
+            className="inline-flex size-[18px] items-center justify-center rounded-[2px] text-[10.5px] text-faint hover:bg-line-soft hover:text-err"
           >
             ×
           </button>
         </span>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden py-[6px] pl-2.5 pr-0.5">
+      <div className="min-h-0 flex-1 overflow-hidden px-2 py-1.5">
         <div ref={hostRef} className="size-full" />
       </div>
     </section>

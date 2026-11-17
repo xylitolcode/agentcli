@@ -23,7 +23,7 @@ function markClass(mark: FileMark | undefined): string {
   if (!mark) return ''
   if (mark.git) {
     if (mark.git === 'modified') return 'text-warn'
-    if (mark.git === 'added') return 'text-[#7ee787]'
+    if (mark.git === 'added') return 'text-accent'
     if (mark.git === 'deleted') return 'text-err'
     if (mark.git === 'untracked' || mark.git === 'renamed') return 'text-accent'
     if (mark.git === 'conflicted') return 'text-err'
@@ -77,7 +77,7 @@ export function FileNode({
     if (next && !state) onLoadDir(path)
   }
 
-  const nameTone = markClass(mark) || (isDir ? 'text-[#9ecbff]' : 'text-fg')
+  const nameTone = markClass(mark) || (isDir ? 'text-dim' : 'text-fg')
 
   return (
     <div>
@@ -101,9 +101,11 @@ export function FileNode({
         style={{ paddingLeft: 8 + depth * 13 }}
         className={
           'flex cursor-pointer items-center gap-1.5 py-[3px] pr-2.5 leading-[1.55] whitespace-nowrap ' +
-          (entry.blocked ? 'cursor-not-allowed opacity-40 ' : 'hover:bg-[#151b23] ') +
+          (entry.blocked ? 'cursor-not-allowed opacity-40 ' : 'hover:bg-line-soft ') +
           (entry.hidden ? 'opacity-45 ' : '') +
-          (selected ? 'bg-[#14212e] shadow-[inset_2px_0_0_var(--color-accent)]' : '')
+          (selected
+            ? 'bg-[rgba(110,243,200,0.08)] shadow-[inset_2px_0_0_var(--color-phos)]'
+            : '')
         }
       >
         <span
@@ -119,7 +121,7 @@ export function FileNode({
           )}
         </span>
 
-        <span className={isDir ? 'shrink-0 text-[#6ea8fe]' : 'shrink-0 text-[#8b98a8]'}>
+        <span className={isDir ? 'shrink-0 text-dim' : 'shrink-0 text-faint'}>
           {isDir ? <FolderIcon /> : <FileIcon />}
         </span>
 

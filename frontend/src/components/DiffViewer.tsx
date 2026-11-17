@@ -23,10 +23,10 @@ const KIND_LABEL: Record<string, string> = {
 
 const KIND_TONE: Record<string, string> = {
   modified: 'text-warn',
-  added: 'text-[#7ee787]',
+  added: 'text-accent',
   deleted: 'text-err',
-  renamed: 'text-[#79c0ff]',
-  untracked: 'text-[#79c0ff]',
+  renamed: 'text-accent',
+  untracked: 'text-accent',
   conflicted: 'text-err',
 }
 
@@ -179,34 +179,34 @@ export function DiffViewer({
       onClick={onClose}
     >
       <section
-        className="flex h-[88vh] w-full max-w-[1180px] flex-col overflow-hidden rounded-[10px] border border-line bg-[#0b1017] shadow-2xl"
+        className="flex h-[88vh] w-full max-w-[1180px] flex-col overflow-hidden rounded-[2px] border border-line bg-panel shadow-[0_0_90px_rgba(0,0,0,0.7)]"
         onClick={(event) => event.stopPropagation()}
         aria-label="只读差异查看器"
       >
-        <header className="flex shrink-0 items-center gap-2 border-b border-line bg-panel-2 px-3 py-2">
-          <span className="shrink-0 text-[#8b98a8]"><FileIcon /></span>
+        <header className="flex shrink-0 items-center gap-2 border-b border-line bg-[rgba(11,18,25,0.7)] px-3 py-2">
+          <span className="shrink-0 text-dim"><FileIcon /></span>
           <span className="min-w-0 truncate text-xs text-fg" title={data?.path || path}>
             {data?.path || path}
           </span>
           {kindLabel && (
-            <span className={'shrink-0 rounded-[4px] border border-line px-1 text-[10px] ' + kindTone}>
+            <span className={'shrink-0 rounded-[1px] border border-line px-1 text-[10px] ' + kindTone}>
               {kindLabel}
             </span>
           )}
-          <span className="shrink-0 text-[10.5px] text-[#7ee787]">+{stats.add}</span>
+          <span className="shrink-0 text-[10.5px] text-accent">+{stats.add}</span>
           <span className="shrink-0 text-[10.5px] text-err">-{stats.del}</span>
 
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
-            <span className="flex items-center gap-0.5 rounded-[5px] border border-line p-[1px]">
+            <span className="flex items-center gap-0.5 rounded-[2px] border border-line p-[1px]">
               {(Object.keys(MODE_LABEL) as DiffMode[]).map((item) => (
                 <button
                   key={item}
                   onClick={() => setMode(item)}
                   title={`看${MODE_LABEL[item]}的改动`}
                   className={
-                    'rounded-[4px] px-1.5 py-[2px] text-[10.5px] ' +
+                    'rounded-[1px] px-1.5 py-[2px] text-[10.5px] ' +
                     (mode === item
-                      ? 'bg-[#0d1a26] text-accent'
+                      ? 'bg-[rgba(110,243,200,0.09)] text-accent'
                       : 'text-dim hover:bg-line-soft hover:text-fg')
                   }
                 >
@@ -215,12 +215,12 @@ export function DiffViewer({
               ))}
             </span>
 
-            <span className="flex items-center gap-0.5 rounded-[5px] border border-line p-[1px]">
+            <span className="flex items-center gap-0.5 rounded-[2px] border border-line p-[1px]">
               <button
                 onClick={() => gotoBlock(cursor - 1)}
                 disabled={!total}
                 title="上一处改动（p / ←）"
-                className="rounded-[4px] px-1.5 py-[2px] text-[11px] leading-none text-dim hover:bg-line-soft hover:text-fg disabled:opacity-35"
+                className="rounded-[1px] px-1.5 py-[2px] text-[11px] leading-none text-dim hover:bg-line-soft hover:text-fg disabled:opacity-35"
               >
                 ←
               </button>
@@ -231,7 +231,7 @@ export function DiffViewer({
                 onClick={() => gotoBlock(cursor + 1)}
                 disabled={!total}
                 title="下一处改动（n / →）"
-                className="rounded-[4px] px-1.5 py-[2px] text-[11px] leading-none text-dim hover:bg-line-soft hover:text-fg disabled:opacity-35"
+                className="rounded-[1px] px-1.5 py-[2px] text-[11px] leading-none text-dim hover:bg-line-soft hover:text-fg disabled:opacity-35"
               >
                 →
               </button>
@@ -239,21 +239,21 @@ export function DiffViewer({
 
             <button
               onClick={() => onOpenFile(data?.path || path)}
-              className="rounded-[5px] border border-line px-2 py-1 text-[10.5px] text-dim hover:bg-line-soft hover:text-fg"
+              className="rounded-[2px] border border-line px-2 py-1 text-[10.5px] text-dim hover:bg-line-soft hover:text-fg"
               title="看整个文件的当前内容"
             >
               全文
             </button>
             <button
               onClick={() => onInsert(data?.path || path)}
-              className="rounded-[5px] border border-line px-2 py-1 text-[10.5px] text-dim hover:bg-line-soft hover:text-fg"
+              className="rounded-[2px] border border-line px-2 py-1 text-[10.5px] text-dim hover:bg-line-soft hover:text-fg"
               title="把文件路径插入当前终端（不是编辑内容）"
             >
               插入终端
             </button>
             <button
               onClick={onClose}
-              className="rounded-[5px] border border-transparent px-2 py-1 text-sm leading-none text-dim hover:border-line hover:bg-line-soft hover:text-fg"
+              className="rounded-[2px] border border-transparent px-2 py-1 text-sm leading-none text-dim hover:border-line hover:bg-line-soft hover:text-fg"
               title="关闭（Esc）"
             >
               ×
@@ -261,7 +261,7 @@ export function DiffViewer({
           </span>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-auto bg-[#0b1017]">
+        <div className="min-h-0 flex-1 overflow-auto bg-panel">
           {loading && <div className="px-4 py-3 text-xs text-faint">计算差异…</div>}
           {error && <div className="px-4 py-3 text-xs text-err">读取失败：{error}</div>}
           {!loading && !error && data && !data.repo && (
@@ -286,7 +286,7 @@ export function DiffViewer({
                 row.kind === 'hunk' ? (
                   <div
                     key={row.key}
-                    className="mt-1 flex items-center gap-2 border-y border-[#16233a] bg-[#0e1723] px-3 py-[3px] text-[10.5px] text-[#79c0ff]"
+                    className="mt-1 flex items-center gap-2 border-y border-line bg-[rgba(110,243,200,0.05)] px-3 py-[3px] text-[10.5px] text-accent"
                   >
                     <span className="text-faint">@@</span>
                     <span className="shrink-0">第 {row.hunkStart} 行起</span>
@@ -307,9 +307,9 @@ export function DiffViewer({
                     className={
                       'flex items-start ' +
                       (row.line.t === '+'
-                        ? 'bg-[#0f2a1a] text-[#a5e8b8]'
+                        ? 'bg-[#0c2418] text-[#a8ecc8]'
                         : row.line.t === '-'
-                          ? 'bg-[#2a1215] text-[#ffb3b8]'
+                          ? 'bg-[#2a1416] text-[#ffb3b8]'
                           : 'text-dim')
                     }
                     style={
@@ -337,7 +337,7 @@ export function DiffViewer({
           )}
         </div>
 
-        <footer className="flex shrink-0 items-center gap-3 border-t border-line bg-panel-2 px-3 py-1.5 text-[10.5px] text-faint">
+        <footer className="flex shrink-0 items-center gap-3 border-t border-line px-3 py-1.5 text-[10.5px] text-faint">
           <span>只读对比 · 不落盘、不 stage</span>
           <span>n / p 跳改动</span>
           {data?.truncated && <span className="text-warn">差异过大，只解析了前 4000 行</span>}

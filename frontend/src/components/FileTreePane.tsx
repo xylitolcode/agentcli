@@ -18,6 +18,7 @@ type Props = {
   onCollapse: () => void
 }
 
+/** 右列的目录侧栏：仪器语汇 —— 透明底、细线、小号大写标签，没有卡片盒子。 */
 export function FileTreePane({
   dirs,
   marks,
@@ -37,17 +38,18 @@ export function FileTreePane({
   return (
     <aside
       className={
-        'flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[10px] border border-line bg-panel ' +
+        'flex min-h-0 min-w-0 flex-col overflow-hidden bg-panel ' +
         (collapsed ? 'shrink-0' : 'flex-1')
       }
     >
-      <div className="flex shrink-0 items-center gap-2 border-b border-line bg-panel-2 px-2.5 py-[7px]">
-        <span className="text-xs tracking-[0.3px] text-dim">项目目录</span>
+      <div className="flex shrink-0 items-center gap-2 border-b border-line px-2.5 py-[6px]">
+        <span className="text-[10px] uppercase tracking-[0.12em] text-ghost">files</span>
         <span className="ml-auto flex items-center gap-1.5">
           <button
+            type="button"
             onClick={onCollapse}
             title={collapsed ? '展开项目目录' : '收起项目目录'}
-            className="flex items-center justify-center rounded-[5px] border border-transparent p-[3px] leading-none text-dim hover:border-line hover:bg-line-soft hover:text-fg"
+            className="flex items-center justify-center rounded-[2px] border border-transparent p-[3px] leading-none text-dim hover:border-line hover:bg-line-soft hover:text-fg"
           >
             <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor"
               strokeWidth="1.4" className={collapsed ? 'rotate-180' : ''} aria-hidden="true">
@@ -55,22 +57,24 @@ export function FileTreePane({
             </svg>
           </button>
           <button
+            type="button"
             onClick={onToggleHidden}
             title="显示/隐藏隐藏文件"
             aria-pressed={showHidden}
             className={
-              'flex items-center justify-center rounded-[5px] border border-transparent p-[3px] leading-none ' +
+              'flex items-center justify-center rounded-[2px] border border-transparent p-[3px] leading-none ' +
               (showHidden
-                ? 'border-[#1f3a5c] bg-[#0d1a26] text-accent'
-                : 'text-dim hover:border-line hover:bg-line-soft hover:text-fg')
+                ? 'bg-[rgba(110,243,200,0.09)] text-accent'
+                : 'text-dim hover:bg-line-soft hover:text-fg')
             }
           >
             <EyeIcon />
           </button>
           <button
+            type="button"
             onClick={onRefresh}
             title="刷新目录"
-            className="flex items-center justify-center rounded-[5px] border border-transparent p-[3px] leading-none text-dim hover:border-line hover:bg-line-soft hover:text-fg"
+            className="flex items-center justify-center rounded-[2px] border border-transparent p-[3px] leading-none text-dim hover:border-line hover:bg-line-soft hover:text-fg"
           >
             <RefreshIcon />
           </button>
