@@ -187,6 +187,7 @@ WebAudio 合成的连接音/完成音，一次 80ms，默认关，开关放 HUD 
 | P0 | `2643bb7` | 按计划落地；`StatusBar` 并入 HUD 后删除 |
 | P1 | `b7552f7` | 按计划落地；`motion` 带来约 160 kB |
 | P2 | 本轮 | **只用 `three` + `@react-three/fiber`**，未引 `drei`，未引 `postprocessing` |
+| P3 | 本轮 | ⌘K 命令面板 + 结果虚拟滚动 + 文件/Git 改召唤抽屉；`Splitter` 删除 |
 
 P2 的三处主动偏差，原因如下：
 
@@ -195,3 +196,12 @@ P2 的三处主动偏差，原因如下：
 3. **限帧与暂停**：`frameloop="demand"` + 33 ms 定时器 `invalidate()`（约 30fps），`document.hidden` 时跳过点名，`visibilitychange` 恢复后补一帧。不用满帧 rAF。
 
 降级链路有三层：无 WebGL2 或 `hardwareConcurrency < 4` → CSS 同心圆；`prefers-reduced-motion: reduce` → 同一套 CSS 同心圆；两者都通过时才挂 3D。截图见 `docs/ui/p2-stage-3d.png`、`docs/ui/p2-stage-static.png`。
+
+P3 的四点：
+
+1. **不用 `Command.Dialog`**。`cmdk` 只负责过滤、分组与键盘导航，浮层自己用 `motion` 包（`fixed inset-0 z-50` + 2px backdrop），外壳和 SearchPane / CodeViewer 是同一套 HUD 语汇。这样面板看起来属于这台机器，而不是一个第三方组件。
+2. **快捷键必须走捕获阶段**。焦点在终端时 xterm 先处理 `Ctrl+K`，把 `0x0B` 发给 bash，window 冒泡监听根本收不到（首轮实测就是这个现象：面板不弹，命令行还被清空）。改成 `addEventListener('keydown', onKey, true)` 并 `stopPropagation()`，Ctrl+K / Ctrl+B / Ctrl+Shift+F 才在任何焦点下都生效。
+3. **右列变抽屉后舞台才真正全幅**。同一窗口下终端从 214×33 变成 262×34 列 —— 折展文件树不再推挤终端宽度，`--tree-w`、拖拽条和 `Splitter.tsx` 一并删除。
+4. **虚拟滚动实测到 388 条**（搜 `e`，后端 `rg` 结果截断后返回 388 处 / 7 个文件），滚动与键盘 ↑↓ 跟手、group/hit 两种行高都正确。2000+ 条的验收点**未实测**：后端搜索上限暂时到不了那个量级，只验证了机制。`shiki` 高亮升级也没做 —— 体积加 wasm 依赖，`highlight.js` 的观感在这个字号下够用。
+
+截图见 `docs/ui/p3-palette.png`（命令面板）、`docs/ui/p3-dock.png`（文件/Git 抽屉）。

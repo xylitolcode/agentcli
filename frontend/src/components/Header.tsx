@@ -8,6 +8,10 @@ type Props = {
   label: string
   /** 搜索按项目根收窄路径，未选项目时不给入口 —— 给了也点不开 */
   onSearch?: () => void
+  /** 召唤层入口：命令面板（Ctrl+K）与文件/Git 抽屉（Ctrl+B） */
+  onPalette?: () => void
+  onFiles?: () => void
+  filesOpen?: boolean
   /** 以下四项原属底部状态栏，P0 起并入 HUD：状态是背景信息，不该单独占一条 lane */
   status?: ConnStatus
   renderMode?: RenderMode
@@ -27,12 +31,18 @@ const STATUS_TEXT: Record<ConnStatus, string> = {
 export function Header({
   label,
   onSearch,
+  onPalette,
+  onFiles,
+  filesOpen = false,
   status,
   renderMode,
   cols = 0,
   rows = 0,
   fontOk = true,
 }: Props) {
+  const chip =
+    'flex shrink-0 items-center gap-1.5 rounded-[2px] border border-line px-2 py-[2px] text-[11px] text-dim transition-colors hover:border-accent hover:text-fg'
+
   return (
     <header className="hud-scan flex shrink-0 items-center gap-3 border-b border-line bg-[rgba(4,7,11,0.92)] px-3 py-[7px] backdrop-blur-[6px]">
       <h1 className="m-0 shrink-0 text-[13px] font-semibold tracking-[0.5px]">
@@ -44,13 +54,38 @@ export function Header({
         <button
           type="button"
           onClick={onSearch}
-          className="flex shrink-0 items-center gap-1.5 rounded-[2px] border border-line px-2 py-[2px] text-[11px] text-dim transition-colors hover:border-accent hover:text-fg"
+          className={chip}
           title="全项目搜索：文件名与内容（Ctrl+Shift+F）"
         >
           搜索
           <kbd className="rounded-[1px] border border-line px-1 text-[9.5px] text-faint">
             Ctrl+Shift+F
           </kbd>
+        </button>
+      )}
+
+      {onPalette && (
+        <button
+          type="button"
+          onClick={onPalette}
+          className={chip}
+          title="命令面板：动作与文件跳转（Ctrl+K）"
+        >
+          命令
+          <kbd className="rounded-[1px] border border-line px-1 text-[9.5px] text-faint">⌘K</kbd>
+        </button>
+      )}
+
+      {onFiles && (
+        <button
+          type="button"
+          onClick={onFiles}
+          aria-pressed={filesOpen}
+          className={chip + (filesOpen ? ' border-accent text-accent' : '')}
+          title="文件与 Git 抽屉（Ctrl+B）"
+        >
+          文件
+          <kbd className="rounded-[1px] border border-line px-1 text-[9.5px] text-faint">Ctrl+B</kbd>
         </button>
       )}
 

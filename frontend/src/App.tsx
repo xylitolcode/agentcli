@@ -1,9 +1,9 @@
 import { AnimatePresence, MotionConfig } from 'motion/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
 
 import { AgentRail } from './components/AgentRail'
 import { CodeViewer } from './components/CodeViewer'
+import { CommandPalette } from './components/CommandPalette'
 import { DiffViewer } from './components/DiffViewer'
 import type { DiffMode } from './components/DiffViewer'
 import { FileTreePane } from './components/FileTreePane'
@@ -13,7 +13,7 @@ import { ProjectPicker } from './components/ProjectPicker'
 import { SearchPane } from './components/SearchPane'
 import { SessionPanel } from './components/SessionPanel'
 import type { SessionHandle } from './components/SessionPanel'
-import { Splitter } from './components/Splitter'
+import { SideDock } from './components/SideDock'
 import { StageCore } from './components/StageCore'
 import { WorkspaceBar } from './components/WorkspaceBar'
 import { useFileTree } from './hooks/useFileTree'
@@ -33,10 +33,6 @@ import type {
   RenderMode,
   SessionInfo,
 } from './types'
-
-const MIN_TREE = 230
-const MAX_TREE = 720
-const DEFAULT_TREE = 330
 
 /** 一条 WebSocket 一个面板；WebGL 上下文和终端实例都得省着点用 */
 const MAX_PANELS = 6
@@ -152,7 +148,6 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
   const [outsourcing, setOutsourcing] = useState(true)
   const [fileMarks, setFileMarks] = useState<Record<string, FileMark>>({})
 
-  const [treeWidth, setTreeWidth] = useState(DEFAULT_TREE)
   const [treeCollapsed, setTreeCollapsed] = useState(
     () => localStorage.getItem('agentcli.tree.collapsed') === '1',
   )
@@ -160,6 +155,9 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [view, setView] = useState<ViewTarget | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
+  /** 文件树/Git 从常驻右列改成召唤抽屉（Ctrl+B），palette 是 Ctrl+K */
+  const [filesOpen, setFilesOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
 
   /** 点了不该点的东西（比如 png）时的短提示，几秒后自己消失 */
   const [notice, setNotice] = useState<{ id: number; text: string } | null>(null)
@@ -481,17 +479,36 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
     [pushNotice],
   )
 
-  // Git 区点工作区文件 = 只看差异。默认给合并视图（vs HEAD），暂存/未暂存在里面切
-  // Ctrl/Cmd+Shift+F 开搜索。用 window 捕获而不是面板级，好在任何焦点下都能唤起
+  // 召唤层的快捷键统一挂 window 捕获：终端拿着焦点时 xterm 会先吃掉 Ctrl+K
+  // 这类组合（还会把 0x0B 发给 bash），所以必须在捕获阶段截下并 stopPropagation。
+  // Ctrl/Cmd+Shift+F 搜索 · Ctrl/Cmd+K 命令面板 · Ctrl/Cmd+B 文件与 Git 抽屉
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'f') {
+      if (!event.ctrlKey && !event.metaKey) return
+      const key = event.key.toLowerCase()
+      const take = () => {
         event.preventDefault()
-        setSearchOpen(true)
+        event.stopPropagation()
+      }
+      if (event.shiftKey) {
+        if (key === 'f') {
+          take()
+          setSearchOpen(true)
+        }
+        return
+      }
+      if (key === 'k') {
+        take()
+        setPaletteOpen((value) => !value)
+        return
+      }
+      if (key === 'b') {
+        take()
+        setFilesOpen((value) => !value)
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [])
 
   const handleOpenDiff = useCallback((file: GitFile) => {
@@ -526,15 +543,6 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
     pendingInsert.current = null
   }, [activeKey, panels.length])
 
-  const handleDrag = useCallback((clientX: number) => {
-    const max = Math.min(MAX_TREE, window.innerWidth * 0.62)
-    setTreeWidth(Math.min(Math.max(window.innerWidth - clientX - 8, MIN_TREE), max))
-  }, [])
-
-  const workspaceStyle = {
-    '--tree-w': `${treeWidth}px`,
-  } as CSSProperties
-
   if (!projectId) {
     return (
       <MotionConfig reducedMotion="user" transition={HUD}>
@@ -563,6 +571,9 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
       <Header
         label={project ? `${project.name} · ${project.path}` : bootstrap.rootPath}
         onSearch={() => setSearchOpen(true)}
+        onPalette={() => setPaletteOpen(true)}
+        onFiles={() => setFilesOpen((value) => !value)}
+        filesOpen={filesOpen}
         status={activeStat?.status ?? 'ended'}
         renderMode={activeStat?.renderMode ?? 'dom'}
         cols={activeStat?.cols ?? 0}
@@ -570,7 +581,7 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
         fontOk={fontOk}
       />
 
-      <div className="app-body" style={workspaceStyle}>
+      <div className="app-body">
         <AgentRail
           profiles={bootstrap.profiles}
           openProfiles={panels.filter((panel) => !panel.meta).map((panel) => panel.profile)}
@@ -655,8 +666,7 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
           )}
         </main>
 
-        <Splitter onDrag={handleDrag} onDragEnd={() => undefined} />
-        <div className="side-column">
+        <SideDock open={filesOpen} onClose={() => setFilesOpen(false)}>
           <FileTreePane
             dirs={dirs}
             marks={treeMarks}
@@ -678,7 +688,7 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
             onRefresh={() => void refreshGit()}
             onOpenDiff={handleOpenDiff}
           />
-        </div>
+        </SideDock>
       </div>
 
       <AnimatePresence>
@@ -724,6 +734,23 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
           />
         )}
       </AnimatePresence>
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        projectId={projectId}
+        projectName={project?.name ?? bootstrap.rootName}
+        projects={bootstrap.projects}
+        sessions={sessions}
+        gitFiles={git?.files ?? []}
+        onOpenFile={(path) => handleOpenFile(path)}
+        onOpenDiff={handleOpenDiff}
+        onOpenSession={openSession}
+        onNewShell={newShell}
+        onSearch={() => setSearchOpen(true)}
+        onOpenFiles={() => setFilesOpen(true)}
+        onRefreshGit={() => void refreshGit()}
+        onPickProject={enterProject}
+      />
       {notice && (
         <div key={notice.id} className="notice" role="status">
           {notice.text}

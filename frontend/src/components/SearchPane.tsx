@@ -1,3 +1,4 @@
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
@@ -115,6 +116,25 @@ export function SearchPane({ projectId, projectName, onClose, onOpen }: Props) {
   const rows = useMemo<SearchRow[]>(() => buildRows(result), [result])
   const selectable = useMemo(() => selectableRows(rows), [rows])
 
+  /*
+   * 一个词能搜出几千行（rg 把整仓库打到上限再截断）。全量挂 DOM 时每次输入
+   * 都要重排几千个节点，键盘选中还要滚动重算 —— 这里只渲染视口内那十几行。
+   * group 行比命中行高一点，所以按行类型给估算值，再用 measureElement 校正。
+   */
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: (index) => (rows[index]?.kind === 'group' ? 27 : 22),
+    overscan: 12,
+    getItemKey: (index) => {
+      const row = rows[index]
+      if (!row) return index
+      if (row.kind === 'group') return `g:${row.path}`
+      if (row.kind === 'file') return `f:${row.path}`
+      return `h:${row.path}:${row.line}`
+    },
+  })
+
   const openRow = (row: SearchRow | undefined) => {
     if (!row || row.kind === 'group') return
     if (row.kind === 'file') onOpen(row.path)
@@ -129,10 +149,11 @@ export function SearchPane({ projectId, projectName, onClose, onOpen }: Props) {
     setActive(selectable[next] ?? 0)
   }
 
+  // 选中项可能还在视口外（键盘一路按下去），跟着把它拉进来
   useEffect(() => {
-    const node = listRef.current?.querySelector('[data-active="1"]')
-    node?.scrollIntoView({ block: 'nearest' })
-  }, [active])
+    if (rows.length === 0 || active < 0) return
+    virtualizer.scrollToIndex(active, { align: 'auto' })
+  }, [active, rows.length, virtualizer])
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
@@ -223,60 +244,83 @@ export function SearchPane({ projectId, projectName, onClose, onOpen }: Props) {
           {!error && rows.length === 0 && (
             <div className="px-4 py-3 text-xs text-faint">{summary}</div>
           )}
-          {!error &&
-            rows.map((row, index) => {
-              if (row.kind === 'group') {
+          {!error && rows.length > 0 && (
+            <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+              {virtualizer.getVirtualItems().map((item) => {
+                const row = rows[item.index]
+                if (!row) return null
+                const wrapper = {
+                  position: 'absolute' as const,
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${item.start}px)`,
+                }
+
+                if (row.kind === 'group') {
+                  return (
+                    <div
+                      key={item.key}
+                      ref={virtualizer.measureElement}
+                      data-index={item.index}
+                      style={wrapper}
+                      className="flex items-center gap-1.5 px-3 pb-1 pt-2 text-[11px] text-dim"
+                    >
+                      <FileIcon />
+                      <span className="min-w-0 truncate" title={row.path}>
+                        {row.path}
+                      </span>
+                      <span className="shrink-0 text-faint">{row.count}</span>
+                    </div>
+                  )
+                }
+
+                const isActive = item.index === active
                 return (
                   <div
-                    key={`g:${row.path}`}
-                    className="flex items-center gap-1.5 px-3 pb-1 pt-2 text-[11px] text-dim"
+                    key={item.key}
+                    ref={virtualizer.measureElement}
+                    data-index={item.index}
+                    style={wrapper}
                   >
-                    <FileIcon />
-                    <span className="min-w-0 truncate" title={row.path}>
-                      {row.path}
-                    </span>
-                    <span className="shrink-0 text-faint">{row.count}</span>
+                    <button
+                      data-active={isActive ? '1' : '0'}
+                      onClick={() => openRow(row)}
+                      onMouseEnter={() => setActive(item.index)}
+                      className={
+                        'flex w-full items-baseline gap-2 px-3 py-[3px] text-left ' +
+                        (isActive ? 'bg-[rgba(110,243,200,0.09)]' : 'hover:bg-line-soft')
+                      }
+                      title={row.kind === 'hit' ? `${row.path}:${row.line}` : row.path}
+                    >
+                      {row.kind === 'hit' ? (
+                        <>
+                          <span className="w-[42px] shrink-0 text-right text-[10.5px] text-faint">
+                            {row.line}
+                          </span>
+                          <code className="min-w-0 flex-1 truncate whitespace-pre text-[11.5px] text-fg">
+                            <Highlighted text={row.text} spans={row.spans} />
+                          </code>
+                        </>
+                      ) : (
+                        <>
+                          <span className="shrink-0 text-dim">
+                            <FileIcon />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-[11.5px] text-fg">
+                            {row.name}
+                          </span>
+                          <span className="shrink-0 max-w-[45%] truncate text-[10.5px] text-faint">
+                            {dirOf(row.path)}
+                          </span>
+                        </>
+                      )}
+                    </button>
                   </div>
                 )
-              }
-              const isActive = index === active
-              return (
-                <button
-                  key={row.kind === 'hit' ? `h:${row.path}:${row.line}` : `f:${row.path}`}
-                  data-active={isActive ? '1' : '0'}
-                  onClick={() => openRow(row)}
-                  onMouseEnter={() => setActive(index)}
-                  className={
-                    'flex w-full items-baseline gap-2 px-3 py-[3px] text-left ' +
-                    (isActive ? 'bg-[rgba(110,243,200,0.09)]' : 'hover:bg-line-soft')
-                  }
-                  title={row.kind === 'hit' ? `${row.path}:${row.line}` : row.path}
-                >
-                  {row.kind === 'hit' ? (
-                    <>
-                      <span className="w-[42px] shrink-0 text-right text-[10.5px] text-faint">
-                        {row.line}
-                      </span>
-                      <code className="min-w-0 flex-1 truncate whitespace-pre text-[11.5px] text-fg">
-                        <Highlighted text={row.text} spans={row.spans} />
-                      </code>
-                    </>
-                  ) : (
-                    <>
-                      <span className="shrink-0 text-dim">
-                        <FileIcon />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-[11.5px] text-fg">
-                        {row.name}
-                      </span>
-                      <span className="shrink-0 max-w-[45%] truncate text-[10.5px] text-faint">
-                        {dirOf(row.path)}
-                      </span>
-                    </>
-                  )}
-                </button>
-              )
-            })}
+              })}
+            </div>
+          )}
         </div>
 
         <footer className="flex shrink-0 items-center gap-3 border-t border-line px-3 py-1.5 text-[10.5px] text-faint">
