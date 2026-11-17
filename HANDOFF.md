@@ -422,7 +422,15 @@ CONSOLE_ENABLE_STUB=1 setsid .venv/bin/uvicorn agentcli.asgi:application --host 
   `~/.claude/settings.json` env 段；qwen `~/.qwen/settings.json`。
 - 同级总目录 `~/projects/`：agentcli(id 1)、myos(id 2)、new-api(id 3)。
 
-## 10. 后续计划：代码与 Git 可视化（只读）
+## 10. Agent 侧收敛（后续方向）
+
+agent 接入只保留：原生 TUI + MCP `delegate_task` + 续会话身份。**不再新增 hooks**：
+qwen/codex 都不接，交互态也不追求文件事件结构化；文件改动以 `git status` / diff
+为准，`file_events` 只作“刚动过”提示。claude 现有 hook 视为可拆卸旁路：身份主靠
+`--session-id`，P5 的 git 视图落地后应整段移除。控制台不再为任何 CLI 私有事件格式
+扩 schema，拿不到就降级。
+
+## 11. 后续计划：代码与 Git 可视化（只读）
 
 控制台不做文件编辑：改文件由 agent/CLI 与 git 负责，控制台只把结果可视化。
 

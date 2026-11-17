@@ -265,8 +265,8 @@ agent 判断该分工、或用户明确要求时调用它；服务端把任务�
 - [ ] 回执进父会话上下文：已由 MCP 解决（旧的一次性路径不再需要）
 - [ ] **`Task` 双跑**：headless 路径仍有「CLI 内部子代理 vs 底座外部子槽」重复风险；
   交互态已改走 MCP，不再自动解析 `Task`
-- [ ] 交互态 hooks：claude 已接 `SessionStart`（校正 CLI 会话 id）与 `PostToolUse`
-  （文件树标色，`/api/hook/`）；qwen hooks 未接，codex 无等价钩子
+- [ ] 交互态 hooks：**不再扩展**。claude 现有一层只作旁路（身份校正/文件标色），
+  后续由 git status / diff 视图替代并可移除；qwen/codex 不接
 - [x] **外包实测**：claude / codex / qwen 都能在原生 TUI 里主动调 `delegate_task`，
   回执进入各自上下文；codex 首次有信任页与一次原生工具审批
 - [ ] **只读代码 / Git 视图（P5）**：目录树点文件只看不写，带语法高亮；再加

@@ -143,9 +143,8 @@
 
 ## 7. 尚未做（按 B 路线继续）
 
-1. hooks：claude `SessionStart` + `PostToolUse` 已接（`scripts/hook_event.py` +
-   `/api/hook/`，用于校正 CLI 会话 id 并给文件树标蓝/标黄）；qwen hooks 尚未接，
-   codex 无等价钩子。
+1. hooks：**停止扩展**。claude 现有 `SessionStart` + `PostToolUse` 只当旁路，后续
+   由 git 状态视图替代并可移除；qwen hooks 不接，codex 不找等价钩子。
 2. codex / qwen 原生 TUI 内的 `delegate_task` 已实测通过（codex 首次有信任页与
    一次原生审批，qwen 直接放行）。
 3. M2 身份续会话：claude 已打通（`--session-id` / `--resume` + 控制台 sid 映射）；
@@ -154,7 +153,26 @@
    传 `1/0`；仍需在真机上确认用户关掉后重连不会被默认值翻回来。
 5. token / BASE_URL 仍是进程内单例，多 worker 失效；P4 鉴权与多用户隔离未做。
 
-## 8. 后续计划：代码与 Git 可视化（只读）
+## 8. Agent 侧收敛：MCP 是唯一编排通道
+
+agent 接入面只保留三件事，不再为每个 CLI 长一套结构化适配：
+
+1. **原生 TUI**：多轮、上下文、权限、slash 命令全归 CLI，控制台只搬字节。
+2. **MCP 外包**：`delegate_task` 是 agent 之间分工的唯一必需通道；回执作为 tool
+   result 回到 agent 自己的上下文。这是主打功能，必须保持稳定。
+3. **续会话身份**：控制台 sid 为主，CLI session id 附属，重开用 `--resume`。
+
+明确不做：
+
+- 不再新增 hooks（qwen/codex 都不接），不再为交互态追求文件事件结构化；
+- 文件“改了什么”以 `git status` / diff 为准（见下节 P5），agent 的 `file_events`
+  只作“刚动过”的提示；
+- 不为某个 CLI 的私有事件格式扩 schema；拿不到就降级，不牺牲原生体验。
+
+claude 现有 hook 是可拆卸旁路：身份以 `--session-id` 为主，hook 只做校正；文件标色
+在 P5 落地后应改为 git 驱动，届时可整段移除。
+
+## 9. 后续计划：代码与 Git 可视化（只读）
 
 方向修正：控制台**不需要自己做文件编辑**。改文件这件事 git 与 agent/CLI 已经能做，
 控制台的价值是把 git 的信息图形化，而不是再长一套编辑器。
