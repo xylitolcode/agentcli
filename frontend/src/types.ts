@@ -4,6 +4,8 @@ export type Profile = {
   name: string
   /** 可执行文件绝对路径，用来做 title 提示 */
   path: string
+  /** agent 是否支持原生交互（可空着开、多轮对话）；false 时只能一次性任务 */
+  interactive?: boolean
   /** agent 必须带初始任务才能起；shell 可以空着开 */
   kind: 'agent' | 'shell' | string
 }
@@ -53,6 +55,8 @@ export type SessionInfo = {
   parent: string
   label: string
   depth: number
+  /** interactive：原生 TUI；headless：一次性任务 */
+  mode?: string
   delegation: string
   cwd: string
   eof: boolean
@@ -66,7 +70,7 @@ export type SessionInfo = {
 /* ---------------- WebSocket 文本帧（控制消息） ---------------- */
 
 export type ControlMessage =
-  | { type: 'session'; sid: string; outsourcing?: boolean }
+  | { type: 'session'; sid: string; mode?: string; outsourcing?: boolean }
   | { type: 'session-eof'; pending?: number }
   | { type: 'session-missing' }
   | { type: 'file-events'; files: Record<string, FileMark> }

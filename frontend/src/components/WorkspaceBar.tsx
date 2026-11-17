@@ -19,10 +19,10 @@ type Props = {
 }
 
 /**
- * 工作区顶栏：派任务 / 新终端 + 房间快照。
+ * 工作区顶栏：开会话 / 新终端 + 房间快照。
  *
- * 「派任务」是 agent 的唯一入口：agent 是非交互进程，任务写进 argv，
- * 一个任务一个会话；CLI 进程跑完就退，槽还在。shell 则是「新终端」。
+ * 真实 agent 默认进原生 TUI，可以空着开、首条消息可选；只有不支持交互的
+ * adapter（测试桩）仍按「任务写进 argv」的一次性形态处理。shell 则是「新终端」。
  */
 export function WorkspaceBar({
   profiles,
@@ -49,8 +49,10 @@ export function WorkspaceBar({
 
   const current = profiles.find((p) => p.name === profile)
   const isAgent = current?.kind === 'agent'
+  // 原生交互会话可以空着开（进 TUI 再聊）；只有 headless（测试桩/自动化）必须有任务
+  const needsPrompt = isAgent && !current?.interactive
   const trimmed = prompt.trim()
-  const canSubmit = panelCount < maxPanels && (!isAgent || trimmed.length > 0)
+  const canSubmit = panelCount < maxPanels && (!needsPrompt || trimmed.length > 0)
 
   const submit = () => {
     if (!canSubmit) return
@@ -79,7 +81,13 @@ export function WorkspaceBar({
         onKeyDown={(event) => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submit()
         }}
-        placeholder={isAgent ? `给 ${profile} 派任务（必填，Ctrl+Enter 提交）` : 'shell 不需要任务'}
+        placeholder={
+          isAgent
+            ? current?.interactive
+              ? `给 ${profile} 的首条消息（可空，直接进交互；Ctrl+Enter 提交）`
+              : `给 ${profile} 派任务（必填，Ctrl+Enter 提交）`
+            : 'shell 不需要任务'
+        }
         disabled={!isAgent}
         className="min-w-[180px] flex-1 rounded-[5px] border border-line bg-panel-2 px-2 py-[3px] text-[11px] text-fg outline-none placeholder:text-ghost focus:border-[#2a4a6b] disabled:opacity-50"
       />
@@ -90,13 +98,13 @@ export function WorkspaceBar({
         title={
           panelCount >= maxPanels
             ? `面板已满（上限 ${maxPanels}），先关掉几个`
-            : isAgent && !trimmed
-              ? 'agent 必须带任务才能起'
+            : needsPrompt && !trimmed
+              ? '这个 agent 只支持一次性任务，必须带任务才能起'
               : undefined
         }
         className="rounded-[5px] border border-[#1f3a5c] bg-[#0e1a26] px-2 py-[3px] text-[11px] text-accent hover:border-accent disabled:cursor-not-allowed disabled:border-line disabled:bg-transparent disabled:text-faint"
       >
-        {isAgent ? '派任务' : '新终端'}
+        {isAgent ? (current?.interactive ? '开会话' : '派任务') : '新终端'}
       </button>
 
       <span className="ml-auto flex flex-wrap items-center gap-1.5">

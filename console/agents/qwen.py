@@ -16,7 +16,24 @@ class QwenAdapter(Adapter):
     kind = "agent"
     label = "Qwen Code"
 
-    def build_argv(self, base_argv: list[str], prompt: str | None = None) -> list[str]:
+    def build_argv(
+        self,
+        base_argv: list[str],
+        prompt: str | None = None,
+        *,
+        mode: str = "headless",
+        sid: str = "",
+    ) -> list[str]:
+        if mode == "interactive":
+            # 原生 TUI；带初始任务要用 -i，位置参数是 one-shot。
+            argv = list(base_argv)
+            if sid:
+                from .. import bridge
+                argv += bridge.qwen_flags(sid)
+            if prompt:
+                argv += ["-i", prompt]
+            return argv
+
         argv = list(base_argv)
         # auto-edit：非交互下自动放行文件编辑，shell 命令仍按分类策略走。
         argv += ["-o", "stream-json", "--approval-mode", "auto-edit"]

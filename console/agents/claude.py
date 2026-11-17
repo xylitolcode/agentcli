@@ -23,7 +23,25 @@ class ClaudeAdapter(Adapter):
     kind = "agent"
     label = "Claude Code"
 
-    def build_argv(self, base_argv: list[str], prompt: str | None = None) -> list[str]:
+    def build_argv(
+        self,
+        base_argv: list[str],
+        prompt: str | None = None,
+        *,
+        mode: str = "headless",
+        sid: str = "",
+    ) -> list[str]:
+        if mode == "interactive":
+            # 原生 TUI：多轮、上下文、权限确认都由 claude 自己管。只补一个
+            # 本地 MCP server，让它可以主动把任务外包给别的 agent。
+            argv = list(base_argv)
+            if sid:
+                from .. import bridge
+                argv += bridge.claude_flags(sid)
+            if prompt:
+                argv.append(prompt)
+            return argv
+
         argv = list(base_argv)
         # acceptEdits：非交互下自动放行文件编辑，不弹权限确认；读命令仍按策略走。
         argv += ["-p", "--output-format", "stream-json", "--verbose",

@@ -112,6 +112,19 @@ def pending_for(parent_sid: str) -> list[Delegation]:
     ]
 
 
+async def wait_task(task: Delegation, timeout: float = DELEGATE_TIMEOUT) -> Delegation:
+    """阻塞到任务收口（done/failed），供 MCP 的同步工具调用使用。
+
+    交互式 agent 的 ``delegate_task`` 是阻塞调用：必须等回执，才能把结果作为
+    tool result 还给 agent 自己的上下文。
+    """
+    waited = 0.0
+    while task.status in ("pending", "running") and waited < timeout:
+        await asyncio.sleep(0.1)
+        waited += 0.1
+    return task
+
+
 def _resolve_profile(target: str | None, fallback: str) -> str:
     """委派目标 -> 底座 profile。
 
@@ -251,17 +264,15 @@ async def _launch(parent_session, slot: sessions._Session, task: Delegation) -> 
     """在子槽里拉起一代子进程，并挂上采集观察者。"""
     from . import terminal  # 延迟导入：terminal 反向依赖 delegation
 
-    adapter = agents.get_adapter(task.profile)
     base = _base_argv(task.profile)
     if base is None:
         slot.runtime.mark_idle()
         _fail(parent_session, task, f"找不到可执行文件：{task.profile}")
         return
 
-    argv = adapter.build_argv(base, prompt=task.prompt)
     spec = terminal.PtySpec(
-        cwd=task.cwd, argv=argv, profile=task.profile,
-        kind="agent", prompt=task.prompt,
+        cwd=task.cwd, argv=base, profile=task.profile,
+        kind="agent", prompt=task.prompt, mode="headless",
     )
     task.status = "running"
     watcher = _ChildWatcher(parent_session, slot, task)

@@ -15,8 +15,17 @@ class StubAdapter(Adapter):
     name = "stub"
     kind = "agent"
     label = "测试桩"
+    # 桩只模拟 headless：没有 TUI，桩测要覆盖的是 JSONL 那条链路。
+    interactive = False
 
-    def build_argv(self, base_argv: list[str], prompt: str | None = None) -> list[str]:
+    def build_argv(
+        self,
+        base_argv: list[str],
+        prompt: str | None = None,
+        *,
+        mode: str = "headless",
+        sid: str = "",
+    ) -> list[str]:
         argv = list(base_argv)
         if prompt:
             argv.append(prompt)

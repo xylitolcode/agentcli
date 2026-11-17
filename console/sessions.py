@@ -58,6 +58,8 @@ class Runtime:
     rows: int = 30
     profile: str = ""
     kind: str = "shell"
+    # interactive：原生 TUI（多轮、上下文归 CLI）；headless：-p/exec 一次性任务
+    mode: str = "interactive"
     cwd: str = ""
     # 环形缓冲：最近一段输出，供重连回放
     buffer: collections.deque[bytes] = field(default_factory=lambda: collections.deque(maxlen=REPLAY_LIMIT))

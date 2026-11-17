@@ -6,8 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Django 网页版 agent CLI：进系统先在总项目目录选项目，进入后工作区是**多会话面板**
 （一个会话一块 xterm + PTY），右侧懒加载项目目录树。`bash` 是系统壳（默认入口）；
-`claude` / `codex` / `qwen` 是产品 agent 能力，走**非 TUI 流式事件**模式（适配器层
-解析 JSONL）。仓库已初始化 git（本机提交）。
+`claude` / `codex` / `qwen` 是产品 agent 能力，默认走**原生交互 TUI**（多轮、上下文、
+权限弹窗、slash 命令都归 CLI）。适配器层只在 headless 模式下解析 JSONL，驱动目录树与
+委派台账。外包（agent 主动调用 `delegate_task`）走 MCP 桥，见 `console/bridge.py`。
+仓库已初始化 git（本机提交）。
 
 ## 常用命令
 
@@ -18,7 +20,7 @@ uvicorn agentcli.asgi:application --port 8010 --reload   # 必须用 uvicorn，r
 python scripts/smoke.py                     # HTTP 冒烟（页面/命令接口/目录树/越界拦截）
 python scripts/check_terminal.py            # WS->PTY 端到端（echo/tty/cd/Ctrl-C/ANSI/宽字符）
 python scripts/check_session.py             # 会话保持：断线重连同进程、同 tty、历史回放
-python scripts/check_delegation.py          # 委派链路：常驻子槽/a→b→c/忙锁/槽复用（桩测，不烧额度）
+python scripts/check_delegation.py          # 委派链路：常驻子槽/a→b→c/忙锁（headless）/交互态直通（桩测）
 python scripts/probe_delegation.py          # 人工验收：真实 claude 当子槽（消耗少量真实额度）
 python manage.py check
 python manage.py test console.tests.<类>.<方法>
@@ -63,19 +65,24 @@ python manage.py test console.tests.<类>.<方法>
   WS 协程里不能直接碰 ORM —— 用 `projects.get_project_async()`（`sync_to_async`
   包一层）取纯内存快照，再传给纯函数 `_resolve_spec`。
 - **agent 适配器层**：`console/agents/`。`base.Adapter` 声明 `kind`（shell/agent）、
-  `build_argv()`（非交互参数）、`env()`（子进程额外注入的鉴权/覆盖变量）、
-  `parse_line()`（JSONL → 归一化事件）；`registry` 按 profile 取适配器。
+  `interactive`（是否原生 TUI）、`build_argv(base, prompt, mode, sid)`、
+  `env()`（子进程额外注入的鉴权/覆盖变量）、`parse_line()`（JSONL → 归一化事件）；
+  `registry` 按 profile 取适配器。`mode="interactive"` 走原生 argv（claude 位置参数、
+  codex 裸 `codex`、qwen `-i`，均带 `bridge.*_flags(sid)` 注入 MCP），
+  `mode="headless"` 走 `-p/exec` + JSONL。`stub` 的 `interactive=False`。
   统一事件：`system/text/tool/result/error`，`tool` 带
-  `tool/file/action(read/write/exec)`。shell 适配器直通不解析。
+  `tool/file/action(read/write/exec)`。shell 适配器直通不解析；交互态不解析。
 - **鉴权现状（临时接线）**：本机走 cc-switch / new-api 本地反代。claude、qwen
   读各自 `settings.json` 的反代段；codex 启动期只查 `OPENAI_API_KEY` 环境变量、
   不回读 `auth.json`，由 `CodexAdapter.env()` 从 `~/.codex/auth.json` 取出注入
   子进程。**未来债**：反代地址、key、模型、权限档位、env 覆盖都要做成各 agent
   独立配置页，不再硬读本机文件。
-- **权限档位（固化在 build_argv）**：claude `--permission-mode acceptEdits`；
-  codex `--sandbox workspace-write`；qwen `--approval-mode auto-edit`。非交互
-  下要自动放行文件编辑，否则工具被拒、样本采不到写事件。探针 `scripts/probe_agents.py`
-  （`--suite broad` 一轮打全类型），样本 `.event-sample/*.jsonl` 与 `probe2/`。
+- **权限档位（固化在 headless argv）**：claude `--permission-mode acceptEdits`；
+  codex `--sandbox workspace-write`；qwen `--approval-mode auto-edit`。headless
+  下要自动放行文件编辑，否则工具被拒、样本采不到写事件。**交互态不设这些档位**，
+  权限弹窗由 CLI 自己出（claude 用 `--allowedTools` 只预放行外包工具）。
+  探针 `scripts/probe_agents.py`（`--suite broad` 一轮打全类型），样本
+  `.event-sample/*.jsonl` 与 `probe2/`。
 - **多工具块解析**：一条 assistant JSONL 可能挂多个工具块，基类 `parse_events()`
   返回列表，`terminal._parse_agent_stream` 批量出事件；`parse_line()` 只回首条
   兼容旧调用。工具归类集合在基类 `READ/WRITE/EXEC_TOOLS`，含 PascalCase 与
@@ -125,18 +132,32 @@ python manage.py test console.tests.<类>.<方法>
   下一级；`Runtime.delegation_id` 记录本槽当前挂的任务，`_link_parent` 据此把下级
   任务登记为上一级的 `child_id`，收口时等下级并合并回执，逐级上墙（a→b→c 已桩测
   通过，且用真实 claude 子槽验收过一次）。
-  **忙锁**：`Runtime.busy/busy_kind`，`dispatch()` 派发前查目标槽忙否（忙则台账记
-  failed 并回灌原因）；用户往 agent 会话喂字节时，若该会话正在跑外包活
-  （`busy_kind=delegate`）则拒收并回 `input-rejected` 帧，中断键（Ctrl-C/D/Z/Esc）
-  放行；带初始任务的会话从启动即 `busy=user`，result/EOF 释放。
-  **尚未做**：子任务结果回写父会话 LLM 上下文（目前是事件帧推送，不进上下文）。
+  **忙锁只守 headless**：`Runtime.busy/busy_kind`，`dispatch()` 派发前查目标槽忙否
+  （忙则台账记 failed 并回灌原因）；用户往 **headless** 会话喂字节时，若该会话正在
+  跑外包活（`busy_kind=delegate`）则拒收并回 `input-rejected` 帧，中断键
+  （Ctrl-C/D/Z/Esc）放行；带初始任务的 headless 会话从启动即 `busy=user`，
+  result/EOF 释放。**交互态 `_accept_user_input` 直接放行**：输入就是聊天，不认领
+  busy、也不产生 `input-rejected`。
+  **回执进上下文**：已由 MCP 解决 —— 交互 agent 主动调 `delegate_task`，回执作为
+  tool result 回到它自己的上下文（`console/bridge.py` + `scripts/mcp_delegate.py`）。
   前端多面板/派任务入口已在 P3 落地（见「前端工程」与「前端规范」）。CLI 内部
-  子代理与底座独立子进程是两回事。父会话本身
-  仍是一次性非交互进程（`claude -p` 在真 TTY 下没有 prompt 参数会直接报错，所以
-  初始任务走 URL `&prompt=`，见下条）。
+  子代理与底座独立子进程是两回事。
+- **MCP 外包桥（`console/bridge.py` + `scripts/mcp_delegate.py`）**：交互态没有
+  JSONL/`Task` 事件可解析，委派改由 agent 主动调用。`bridge` 持有进程内 `TOKEN`、
+  每次 WS 连接按实际端口回填 `BASE_URL`，`mcp_config(sid)` 生成 stdio server 配置；
+  `claude_flags` / `qwen_flags` / `codex_flags` 把配置和中文 `DELEGATE_PROMPT`
+  注入原生 argv。`mcp_delegate.py` 用 stdin/stdout 逐行 JSON-RPC（`initialize` /
+  `tools/list` / `tools/call` / `ping`），`delegate_task(target, prompt,
+  timeout_seconds)` 转 `POST /api/delegate/`（校验 `X-Agentcli-Token`）；视图要求
+  父会话 `outsourcing=True`，调 `delegation.dispatch(..., profile=父的 profile)` 后
+  `wait_task()` 等 done/failed，把 `reply` 作为 tool result 返回。claude/qwen 用
+  `--allowedTools` 预放行 `mcp__agentcli__delegate_task`，避免卡在外包工具的权限弹窗
+  （其它工具仍原生确认）。codex 无 allowedTools 等价开关，走原生 MCP 审批。
+  `TOKEN`/`BASE_URL` 是进程内单例，多 worker 会失效；只适合本机单用户。
 - **profile 白名单**：`CONSOLE_PROFILES` 表决定能拉什么，URL 上是
   `/ws/terminal/?profile=bash&project=3`。只认表里的键，query 不会变成任意命令。
-  `available_profiles()` 会探测 PATH（含 `~/.local/bin` 兜底），前端只显示存在的项。
+  `available_profiles()` 会探测 PATH（含 `~/.local/bin` 兜底）并回 `interactive`，
+  前端只显示存在的项。
   会话结束时必须确认进程真的死了 —— agent 是 node 程序，常自己接管 SIGHUP，
   只发信号不 `waitpid` 会攒一屏僵尸。
 - **踩过的坑（改这块务必注意）**：
@@ -148,11 +169,11 @@ python manage.py test console.tests.<类>.<方法>
     `SynchronousOnlyOperation`；uvicorn 判定整个 lifespan 不受支持后静默降级，
     回收扫描器跟着永远起不来（日志只有一行 `lifespan protocol appears unsupported`）。
     必须 `sync_to_async(...)()` 包一层。
-  - `claude -p` 在真 TTY 下没有 prompt 参数会报
+  - `claude -p`（headless）没有 prompt 且 stdin 为空会报
     `Error: Input must be provided either through stdin or as a prompt argument` ——
-    它只认管道 stdin 或 argv 里的 prompt。所以 agent 会话靠 URL `&prompt=` 带初始
-    任务（`adapter.build_argv(base, prompt=...)`），别再假设「用户在终端里敲就是
-    任务」；非交互 agent 都是任务进 argv、跑完即退的一次性进程。
+    它只认管道 stdin 或 argv 里的 prompt。**交互 TUI 不带 prompt 是正常的**，空着
+    开会话就进原生输入；headless 才必须把任务写进 argv。别再一刀切假设「agent
+    会话必须带任务才能起」。
   - 关 PTY 前必须先 `remove_reader` 再 `close(fd)`（`close_pty` 里已经做了），
     selector 上留着已关闭的 fd 会一直报错。
 - **目录树**：`console/files.py:resolve(rel, project_id)` 是唯一路径守门员（`..` /
@@ -162,11 +183,11 @@ python manage.py test console.tests.<类>.<方法>
   `static/dist/`。Django 模板只有 17 行 —— 一个 `#root` 挂载点 + `json_script` 注入
   的 bootstrap，界面全在 React 里。`console/vite.py` 读 manifest 拿到带 hash 的资源名。
 - **多面板架构**：`App.tsx` 维护 `panels: Panel[]`（key / profile / initialSid / sid /
-  prompt / meta），`WorkspaceBar` 是派任务入口（profile 下拉 + 任务输入），
-  `SessionPanel` 一个面板一份 `usePty` + 一个 xterm，`RoomBar` 列出房间会话并**可
-  点击开面板**（子槽 `↳ label`，带 `#sid尾号`）。一个面板 = 一条 WS = 一个前台
-  进程；关面板只关观察者，后端会话继续跑（可再点开）。面板上限 6，`panel-grid`
-  按数量切 1/2/3 列。
+  prompt / meta），`WorkspaceBar` 是会话入口（profile 下拉 + 任务输入）；
+  **交互 agent 可空任务「开会话」**，headless agent 仍必填「派任务」。`SessionPanel`
+  一个面板一份 `usePty` + 一个 xterm，`RoomBar` 列出房间会话并**可点击开面板**
+  （子槽 `↳ label`，带 `#sid尾号`）。一个面板 = 一条 WS = 一个前台进程；关面板只关
+  观察者，后端会话继续跑（可再点开）。面板上限 6，`panel-grid` 按数量切 1/2/3 列。
 - **首帧缓冲**：终端实例在 `useEffect` 里建，WS 的 `session` 帧/回放字节可能先到。
   `SessionPanel` 用 `pendingWrites` 先攒、`term.open` 后补写 —— 短命 agent 会话
   （桩、一问一答）不会再留下空面板。
@@ -182,11 +203,12 @@ python manage.py test console.tests.<类>.<方法>
   `CONSOLE_PROJECTS_ROOT`（总项目目录）、`CONSOLE_ROOT`（单项目兜底根）、
   `CONSOLE_TREE_LIMIT`（单层上限 400）。会话回收时长在 `console/sessions.py`
   顶部常量（`IDLE_TTL` / `DEAD_TTL` / `DEAD_TTL_WITH_CHILDREN` / `REPLAY_LIMIT`）。
-- **初始任务与外包开关的 URL 参数**：`/ws/terminal/?profile=claude&prompt=...&outsourcing=1`
-  可在建会话时就把初始任务写进 argv、把外包开关打开。带任务的会话一启动就可能抛
-  delegate 事件，前端那帧 `outsourcing` 控制消息来不及，所以开关要能走 URL。
-  前端「派任务」入口就是把这两项拼进 query；`prompt` 即使带了 `sid` 也一直拼着，
-  会话过期重建时能复用同一任务。
+- **初始任务、模式与外包开关的 URL 参数**：`/ws/terminal/?profile=claude&prompt=...&mode=interactive&outsourcing=1`。
+  `mode` 仅对 agent 且值合法时生效，否则按 `adapter.interactive` 取默认（stub 为
+  headless）。`prompt` 交互态可省（原生 TUI 等输入），headless 必填。建会话时就把
+  外包开关打开，因为带任务启动可能立刻触发委派，前端那帧 `outsourcing` 控制消息
+  来不及。前端入口把这几项拼进 query；`prompt` 即使带了 `sid` 也一直拼着，会话过期
+  重建时能复用同一任务（交互态重开则是空任务进 TUI）。
 - **子会话重跑参数 `rerun=1`**：只与 `sid` 一起出现，表示「这个槽已 eof，用上一轮
   委派任务原地再跑一次」。服务端在 `sid` 分支里看到 `eof && role=='child'` 才进
   `delegation.rerun()`；成功就把 `session` 帧/回放照常走，失败回 `rerun-error` 后

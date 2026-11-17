@@ -104,9 +104,14 @@ python scripts/probe_delegation.py # 人工验收：真实 claude 当子槽（�
 ## 会话 profile 与适配器
 
 profile 分两类：`bash` 是系统壳（默认入口）；`claude` / `codex` / `qwen` 是产品
-agent 能力。agent 采用**非 TUI 模式**：适配器层（`console/agents/`）给出非交互
-启动参数，并把 JSONL 输出归一化成统一事件（`system/text/tool/result/error`），
-供目录树联动、审计、任务面板消费。
+agent 能力。**主面板走原生交互**：进 CLI 自己的 TUI，多轮对话、上下文、权限弹窗、
+slash 命令全归 agent，控制台只搬字节。适配器层（`console/agents/`）同时保留
+headless 参数（`-p / exec`），只给**委派子槽**用，那里才把 JSONL 归一化成
+`system/text/tool/result/error` 事件，供台账与目录树消费。
+
+两种形态由 `mode` 决定（`interactive` / `headless`），默认按适配器的 `interactive`
+标记取；`stub` 固定 headless，方便桩测。结构化事件是**尽力提供**，不为了事件去改
+agent 的交互方式。
 
 能拉什么由 `settings.CONSOLE_PROFILES` 决定，**只认表里的键**：
 
@@ -131,7 +136,8 @@ WS 入口：`/ws/terminal/?profile=bash&project=3`。
 
 | 通道 | 入口 | 能力 | 用途 |
 |---|---|---|---|
-| agent 会话 | `ws://.../ws/terminal/?profile=claude&project=3` | 非交互流式事件、有状态 | 页面左侧，主通道 |
+| 原生交互会话 | `ws://.../ws/terminal/?profile=claude&project=3`（`mode=interactive`） | 真 TUI、多轮、上下文、权限弹窗 | 页面左侧，人用的主通道 |
+| headless 会话 | 同上 + `prompt=...`（`mode=headless`） | 一轮任务、JSONL 事件、忙锁 | 委派子槽、自动化 |
 | 命令接口 | `POST /api/command/` | 一次性、结构化 `lines` | 自动化、脚本、降级 |
 
 agent 会话的帧协议刻意做得很薄：
@@ -139,10 +145,26 @@ agent 会话的帧协议刻意做得很薄：
 - **二进制帧** = 终端原始字节流，两个方向都不转码
 - **文本帧** = JSON 控制消息：
   - `{"type":"resize","cols":N,"rows":M}` 调整窗口尺寸
-  - `{"type":"session","sid":"..."}` 服务端下发会话 id（首连/重连后第一条）
+  - `{"type":"session","sid":"...","mode":"interactive"|"headless",...}` 服务端下发会话 id 与形态（首连/重连后第一条）
   - `{"type":"session-missing","sid":"..."}` 本地 id 已被回收，需新开
 
-输入一律走二进制，所以文本帧可以安全地只当控制通道用。
+输入一律走二进制，所以文本帧可以安全地只当控制通道用。交互态输入直通 TUI，
+不设任务忙锁；headless 才把输入当「派活」并守忙锁。
+
+## 外包模式（agent 主动调用）
+
+交互态没有 JSONL 可解析，委派改由 agent 自己发起：服务端给三个 CLI 注入一个
+**MCP server**（`scripts/mcp_delegate.py`），暴露 `delegate_task(target, prompt)`。
+agent 判断该分工、或用户明确要求时调用它；服务端把任务落到 headless 子槽，
+跑完把回执作为 **MCP tool result** 返回——直接进 agent 自己的上下文。
+
+- 每条 WS 连接生成进程内 token 与真实端口，`console/bridge.py` 拼成各 CLI 的
+  `--mcp-config` / `-c mcp_servers...` 参数，并附一段中文系统提示告诉 agent
+  工具的存在与使用边界。
+- 控制台必须有「外包模式」开关（`outsourcing`）；未开启时调用返回明确失败原因，
+  不会静默派活。
+- claude / qwen 预放行 `mcp__agentcli__delegate_task`，避免卡在权限弹窗；其它工具
+  仍走原生权限确认。codex 走它自己的 MCP 审批。
 
 ## 会话保持
 
@@ -161,9 +183,10 @@ agent 会话的帧协议刻意做得很薄：
   `agentcli.panels.${host}.${projectId}`（`{profile,sid,prompt}` 数组 + `activeSid`，
   只含有 sid 的主面板，200ms 防抖）。刷新时 URL 的 sid 命中布局就整体还原，没命中
   就按分享链接单开一个；「关闭全部」同时清布局。子会话面板不持久化。
-- **「重开」**：离线面板回原会话（Shift+点击新开）；已 `ended` 的主面板视为「用同一
-  任务再跑一次」，先擦画面再 `fresh` 重连；已 `ended` 的委派子会话则带 `rerun=1`
-  接回同一张子槽，用上一轮委派任务原地再跑（sid / 父子 / 台账身份不变）。
+- **「重开」**：离线面板回原会话（Shift+点击新开）；已 `ended` 的主面板视为「再开
+  一代」，先擦画面再 `fresh` 重连——交互 agent 可空任务直接重开进 TUI，headless
+  agent 必须还有任务。已 `ended` 的委派子会话则带 `rerun=1` 接回同一张子槽，用上一轮
+  委派任务原地再跑（sid / 父子 / 台账身份不变）。
 - 断连只摘观察者，不杀进程；空闲会话超过 `IDLE_TTL`（默认 300s）由后台扫描
   兜底回收；进程退出后会话进入 `dead`，留 `DEAD_TTL`（默认 30s）供重连回看
   最终输出，随后摘除。名下挂着常驻子槽的父会话留 5 分钟
@@ -228,13 +251,17 @@ agent 会话的帧协议刻意做得很薄：
   子槽自己还能再派下一级（a→b→c）；单 agent 串行，忙则拒绝；回执逐级回灌
 - [x] **多面板**：一个会话一块终端，可同时盯几个 agent；房间条可点开子会话面板，
   父子关系用 `↳ label` 标出
-- [x] **界面派任务**：顶栏选 profile、写任务、点「派任务」，任务进 argv 启动会话
-- [x] **多面板布局持久化**：主面板的 profile/sid/prompt 与活动面板落 `localStorage`，
-  刷新/重开项目原样还原；已结束主面板的「重开」= 用同一任务再跑一次
-- [x] **子会话原地重跑**：委派子槽结束后「重开」接回同一 sid，用上一轮委派任务
-  再派一轮，台账多一条 done，父子关系与槽身份不变
-- [ ] 回执进父会话上下文：现在只上墙，父进程是一问一答的非交互进程，接不回去
-- [ ] **`Task` 双跑**：CLI 内部子代理和底座外部子槽会重复干同一件活，需先定语义
+- [x] **界面开会话/派任务**：顶栏选 profile；交互 agent 可空任务点「开会话」进原生
+  TUI，headless agent 写任务点「派任务」，任务进 argv 启动
+- [x] **主面板原生交互**：claude / codex / qwen 直接进各自 TUI，多轮、上下文、权限
+  弹窗、slash 命令都归 CLI；控制台不解析 ANSI，只搬字节
+- [x] **外包 MCP 桥**：交互 agent 可主动调 `delegate_task` 把活派给另一个 agent，
+  回执作为 tool result 回到它自己的上下文
+- [ ] 回执进父会话上下文：已由 MCP 解决（旧的一次性路径不再需要）
+- [ ] **`Task` 双跑**：headless 路径仍有「CLI 内部子代理 vs 底座外部子槽」重复风险；
+  交互态已改走 MCP，不再自动解析 `Task`
+- [ ] 交互态 hooks：claude PostToolUse / qwen hooks 回调控制台，补回文件树标色与忙态
+- [ ] codex / qwen 的 MCP 外包实测（目前只验了配置可解析、TUI 可启动）
 - [ ] 鉴权：Django auth 接上，会话按用户隔离（现在是单用户假设）
 - [ ] 审计日志：谁在什么时候、用哪个 agent、动了什么
 - [ ] **agent 独立配置管理页**：反代地址、鉴权/key、模型选择、权限放行档位、
@@ -242,9 +269,18 @@ agent 会话的帧协议刻意做得很薄：
   （codex 从 `~/.codex/auth.json` 取 `OPENAI_API_KEY` 注入子进程 env；
   claude/qwen 读各自 `settings.json` 的反代段），属临时接线，未做可视化管理。
 
-## 非交互模式与权限档位
+## 两种模式与权限档位
 
-三个 agent 都以非交互子命令拉起，权限档位在适配器 `build_argv()` 里固化：
+### 交互态（主面板默认）
+
+claude / codex / qwen 直接以原生 TUI 启动（claude/qwen 可带首条消息，qwen 用 `-i`），
+权限弹窗、`/model`、`/resume` 等全部由 CLI 自己处理；每个会话额外注入 MCP 桥参数
+（见「外包模式」）。这一态**不解析 JSONL**，所以文件树不标色、房间条不显示 busy，
+属已知降级，不是 bug。
+
+### headless 态（委派子槽、stub）
+
+任务进 argv，权限档位在适配器 `build_argv(..., mode="headless")` 里固化：
 
 | agent | 入口 | 权限参数 | 实测能力（低 token 探针） |
 |---|---|---|---|

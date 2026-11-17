@@ -200,7 +200,7 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
     [bootstrap.projects, projectId],
   )
 
-  // 新面板默认用项目偏好 agent；它必须带任务，所以「新终端」另选 shell
+  // 新面板默认用项目偏好 agent；真实 agent 进原生 TUI，可空着开
   const shellProfile = useMemo(
     () => bootstrap.profiles.find((p) => p.kind === 'shell') ?? bootstrap.profiles[0],
     [bootstrap.profiles],
@@ -471,13 +471,17 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
           ) : (
             <div className="panel-grid min-h-0 flex-1 p-2" data-cols={columns}>
               {panels.map((panel) => {
+                const prof = bootstrap.profiles.find((p) => p.name === panel.profile)
                 const isChild = panel.meta?.role === 'child'
                 // 委派子槽能「原槽重跑」上一轮任务；普通子会话没有台账可依
                 const rerunOnEnded = isChild && !!panel.meta?.delegation
-                const kind = bootstrap.profiles.find((p) => p.name === panel.profile)?.kind
-                // shell 空着也能重开；agent 必须还有任务，否则会话起不来
+                // shell 空着也能重开；原生交互 agent 也可以直接重开进 TUI；
+                // 一次性 agent 必须还有任务，否则会话起不来
                 const restartable =
-                  kind === 'shell' || panel.prompt.trim().length > 0 || rerunOnEnded
+                  prof?.kind === 'shell' ||
+                  !!prof?.interactive ||
+                  panel.prompt.trim().length > 0 ||
+                  rerunOnEnded
                 const title = isChild
                   ? `↳ ${panel.meta?.label || panel.profile}`
                   : panel.profile

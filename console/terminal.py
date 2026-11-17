@@ -40,7 +40,7 @@ from urllib.parse import parse_qs
 
 from django.conf import settings
 
-from . import agents, delegation, files, projects, sessions
+from . import agents, bridge, delegation, files, projects, sessions
 
 logger = logging.getLogger(__name__)
 
@@ -84,16 +84,19 @@ def resolve_profile(name: str) -> tuple[str, list[str]] | None:
     return name, [exe, *argv[1:]]
 
 
-def available_profiles() -> list[dict[str, str]]:
+def available_profiles() -> list[dict]:
     """当前机器上真正能拉起来的那几个，前端只显示这些。"""
     items = []
     for name in settings.CONSOLE_PROFILES:
         resolved = resolve_profile(name)
         if resolved:
-            # kind 给前端用：agent 必须带初始任务才能起（claude 在真 TTY 下
-            # 没有 prompt 参数会直接报错），shell 则可以空着开
+            # kind / interactive 给前端用：交互态 agent 可以空着开（原生 TUI），
+            # headless 才必须带初始任务（`-p` 没有任务直接报错）。
             adapter = agents.get_adapter(name)
-            items.append({"name": name, "path": resolved[1][0], "kind": adapter.kind})
+            items.append({
+                "name": name, "path": resolved[1][0], "kind": adapter.kind,
+                "interactive": adapter.interactive,
+            })
     return items
 
 
@@ -120,24 +123,37 @@ class PtySpec:
     project_id: int | None = None
     kind: str = "shell"
     prompt: str = ""
+    # interactive：原生 TUI（多轮、上下文归 CLI）；headless：-p/exec 一次性任务
+    mode: str = "interactive"
 
 
-def _spawn(spec: PtySpec, runtime: sessions.Runtime) -> None:
-    """fork 出前台进程，把 pid/fd 回填到会话运行时状态上。"""
+def _spawn(spec: PtySpec, runtime: sessions.Runtime, sid: str = "") -> None:
+    """fork 出前台进程，把 pid/fd 回填到会话运行时状态上。
+
+    agent 的最终 argv 必须等 sid 确定后再生成：交互态要把 sid 交给 MCP server
+    （「替哪张会话说话」），而 sid 是注册表 create 时才分配的。
+    """
     env = _build_env()
     # 适配器按需注入鉴权/反代覆盖环境变量（如 codex 的 OPENAI_API_KEY）
     adapter = agents.get_adapter(spec.profile)
     env.update(adapter.env())
 
+    argv = list(spec.argv)
+    if adapter.kind == "agent":
+        argv = adapter.build_argv(
+            spec.argv, prompt=spec.prompt or None, mode=spec.mode, sid=sid,
+        )
+
     pid, fd = pty.fork()
     if pid == 0:  # 子进程：绝不能回到 asyncio 的地盘，出错直接 _exit
         try:
             os.chdir(spec.cwd)
-            os.execvpe(spec.argv[0], spec.argv, env)
+            os.execvpe(argv[0], argv, env)
         except BaseException:
             os._exit(127)
 
     runtime.pid, runtime.fd = pid, fd
+    runtime.mode = spec.mode
     os.set_blocking(fd, False)
     _resize_fd(fd, runtime.cols, runtime.rows)
 
@@ -181,7 +197,7 @@ def spawn_into_session(spec: PtySpec, session: sessions._Session) -> None:
     runtime.kind = spec.kind
     runtime.cwd = spec.cwd
 
-    _spawn(spec, runtime)
+    _spawn(spec, runtime, session.sid)
     if runtime.fd >= 0:
         _attach_reader(session, asyncio.get_running_loop())
 
@@ -362,19 +378,20 @@ def _resolve_spec(
 
     profile, argv = resolved
     adapter = agents.get_adapter(profile)
-    # 初始任务：query 里带 prompt 时，agent 走「任务在 argv 里」的形态。
-    # claude 的 `-p` 在真 TTY 下没有 prompt 参数会直接报
-    # "Input must be provided either through stdin or as a prompt argument"，
-    # 所以 agent 会话必须有初始任务才能跑；bash 忽略这个参数。
+    # 初始任务：交互会话作为首条消息，headless 会话写进 argv。shell 忽略。
     prompt = (query.get("prompt") or [""])[0][:PROMPT_LIMIT]
-    # 非 TUI agent 走适配器给的非交互 argv；shell 保持原始 argv。
-    if adapter.kind == "agent":
-        argv = adapter.build_argv(argv, prompt=prompt or None)
+    # 默认形态：真实 agent 进原生 TUI；只有不支持交互的适配器（测试桩）退回
+    # headless。显式 mode 优先，供委派子槽与自动化调用。
+    requested_mode = (query.get("mode") or [""])[0].strip()
+    if requested_mode in ("interactive", "headless") and adapter.kind == "agent":
+        mode = requested_mode
+    else:
+        mode = "interactive" if adapter.interactive else "headless"
     cwd = str(projects.project_path_dict(project)) if project else str(files.root())
     return PtySpec(
         cwd=cwd, argv=argv, profile=profile,
         project_id=project["id"] if project else None,
-        kind=adapter.kind, prompt=prompt,
+        kind=adapter.kind, prompt=prompt, mode=mode,
     ), None
 
 
@@ -397,6 +414,11 @@ async def terminal_ws(scope, receive, send) -> None:
 
     query = parse_qs(scope.get("query_string", b"").decode(errors="replace"))
     sid_param = (query.get("sid") or [""])[0].strip()
+
+    # MCP server 要回调本进程：用当前 WS 的 server 端口填真实地址（8010/8013
+    # 都是按启动参数变的，不能写死）。
+    server = scope.get("server") or ("127.0.0.1", 8010)
+    bridge.BASE_URL = f"http://127.0.0.1:{server[1]}"
 
     session: sessions._Session | None = None
 
@@ -456,9 +478,9 @@ async def terminal_ws(scope, receive, send) -> None:
                     rt.depth = parent.runtime.depth + 1
                     # 子槽继承父会话的外包开关：链式外包不该被开关卡在半路
                     rt.outsourcing = parent.runtime.outsourcing
-                _spawn(spec, rt)
-                if spec.prompt:
-                    # 带初始任务起的会话从第一秒起就在干活，状态条要如实
+                _spawn(spec, rt, s.sid)
+                if spec.prompt and spec.mode == "headless":
+                    # 带初始任务的 headless 会话从第一秒起就在干活，状态条要如实
                     rt.mark_busy("user")
                 # 带初始任务的会话一启动就可能抛委派事件，外包开关必须赶在
                 # 第一行输出之前就位；前端那帧控制消息到达得太晚。
@@ -487,6 +509,7 @@ async def terminal_ws(scope, receive, send) -> None:
          "profile": runtime.profile, "role": runtime.role,
          "parent": runtime.parent_sid or "",
          "label": runtime.label, "depth": runtime.depth,
+         "mode": runtime.mode,
          "busy": runtime.is_busy(), "busy_kind": runtime.busy_kind,
          "outsourcing": runtime.outsourcing}
     )})
@@ -572,7 +595,9 @@ def _attach_reader(session: sessions._Session, loop: asyncio.AbstractEventLoop) 
 def _parse_agent_stream(session: sessions._Session, chunk: bytes) -> None:
     """把 agent 输出按 JSONL 喂给适配器，归一化事件记入会话并推给观察者。"""
     runtime = session.runtime
-    if runtime.kind != "agent":
+    # 结构化事件只在 headless 有保证：交互态 stdout 是 ANSI 画面，硬按 JSONL
+    # 解析只会把 TUI 残片当噪音。交互态的编排走 MCP（bridge）。
+    if runtime.kind != "agent" or runtime.mode != "headless":
         return
     adapter = agents.get_adapter(runtime.profile)
 
@@ -634,6 +659,11 @@ def _accept_user_input(session: sessions._Session, data: bytes, outbox: asyncio.
     """
     rt = session.runtime
     if not data or rt.kind != "agent":
+        return True
+    # 交互态：输入就是跟 agent 对话，不是「再派一件活」，不设忙锁、不记 busy。
+    # 忙锁只守 headless 的任务入口（一次性进程一次只接一件活）。
+    if rt.mode != "headless":
+        rt.touch()
         return True
     if rt.is_busy() and rt.busy_kind == "delegate" and data not in INTERRUPT_BYTES:
         outbox.put_nowait({"type": "websocket.send", "text": json.dumps({

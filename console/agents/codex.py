@@ -34,7 +34,24 @@ class CodexAdapter(Adapter):
     kind = "agent"
     label = "Codex CLI"
 
-    def build_argv(self, base_argv: list[str], prompt: str | None = None) -> list[str]:
+    def build_argv(
+        self,
+        base_argv: list[str],
+        prompt: str | None = None,
+        *,
+        mode: str = "headless",
+        sid: str = "",
+    ) -> list[str]:
+        if mode == "interactive":
+            # codex 不带子命令就是 TUI；MCP 用 -c 覆盖 mcp_servers 表。
+            argv = list(base_argv)
+            if sid:
+                from .. import bridge
+                argv += bridge.codex_flags(sid)
+            if prompt:
+                argv.append(prompt)
+            return argv
+
         # base_argv[0] 是 `codex`，非交互入口是 `codex exec`
         argv = [base_argv[0], "exec"]
         # workspace-write：沙箱内允许写工作区文件，shell 命令在沙箱内执行，

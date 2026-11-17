@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.http import JsonResponse
 from django.shortcuts import render
-from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
-from . import agent, delegation, files, projects, sessions, terminal, vite
+from . import agent, bridge, delegation, files, projects, sessions, terminal, vite
 
 
 @ensure_csrf_cookie
@@ -84,6 +85,8 @@ def sessions_list(request):
             "parent": rt.parent_sid or "",
             "label": rt.label,
             "depth": rt.depth,
+            "kind": rt.kind,
+            "mode": rt.mode,
             "delegation": rt.delegation_id,
             "cwd": rt.cwd,
             "eof": rt.eof,
@@ -134,3 +137,68 @@ def command(request):
         )
 
     return JsonResponse(agent.execute(raw))
+
+
+@csrf_exempt
+async def delegate_api(request):
+    """MCP 工具 ``delegate_task`` 的回调端点（只给本机 agent 进程用）。
+
+    交互式 agent 的 stdout 是 ANSI，底座拿不到 ``tool_use Task``，所以外包由
+    agent 主动调 MCP 工具；MCP server 再把调用 POST 回这里，在进程内走同一条
+    ``delegation.dispatch``（建槽、忙锁、台账、回执）。
+    """
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "只接受 POST"}, status=405)
+    if request.headers.get("X-Agentcli-Token", "") != bridge.TOKEN:
+        return JsonResponse({"ok": False, "error": "token 不匹配"}, status=403)
+
+    try:
+        payload = json.loads(await sync_to_async(lambda: request.body or b"{}")())
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "请求体不是合法 JSON"}, status=400)
+
+    sid = str(payload.get("sid") or "")
+    prompt = str(payload.get("prompt") or "").strip()
+    target = str(payload.get("target") or "").strip() or None
+    if not sid or not prompt:
+        return JsonResponse({"ok": False, "error": "sid / prompt 不能为空"}, status=400)
+    if len(prompt) > terminal.PROMPT_LIMIT:
+        return JsonResponse({"ok": False, "error": "任务描述过长"}, status=400)
+
+    parent = await sessions.registry.get(sid)
+    if parent is None:
+        return JsonResponse({"ok": False, "error": "父会话已回收"}, status=404)
+    if not parent.runtime.outsourcing:
+        return JsonResponse(
+            {"ok": False, "error": "外包模式未开启：请用户在控制台打开后再调用"},
+            status=403,
+        )
+
+    task = await delegation.dispatch(
+        parent,
+        {"tool": "Task", "target": target, "text": prompt, "raw": {}},
+        profile=parent.runtime.profile,
+        cwd=parent.runtime.cwd,
+    )
+    if task is None:
+        return JsonResponse({"ok": False, "error": "目标不是可用的 agent"}, status=400)
+
+    try:
+        timeout = int(payload.get("timeout") or delegation.DELEGATE_TIMEOUT)
+    except (TypeError, ValueError):
+        timeout = delegation.DELEGATE_TIMEOUT
+    timeout = max(5, min(timeout, 300))
+    await delegation.wait_task(task, timeout=timeout)
+    if task.status != "done":
+        return JsonResponse(
+            {"ok": False, "error": task.error or f"任务未收口（{task.status}）",
+             "delegation_id": task.id, "child_sid": task.child_sid},
+            status=502,
+        )
+    return JsonResponse({
+        "ok": True,
+        "delegation_id": task.id,
+        "child_sid": task.child_sid,
+        "profile": task.profile,
+        "reply": task.reply,
+    })

@@ -144,7 +144,7 @@ async def unit_busy_gate() -> str:
     from console import sessions, terminal
 
     rt = sessions.Runtime(loop=asyncio.get_running_loop(), kind="agent",
-                          busy=True, busy_kind="delegate")
+                          mode="headless", busy=True, busy_kind="delegate")
 
     class FakeSession:
         pass
@@ -157,12 +157,22 @@ async def unit_busy_gate() -> str:
     assert not outbox.empty(), "拒绝时应回一帧 input-rejected"
     assert terminal._accept_user_input(s, b"\x03", outbox) is True, "中断键应放行"
 
-    rt2 = sessions.Runtime(loop=asyncio.get_running_loop(), kind="agent")
+    rt2 = sessions.Runtime(loop=asyncio.get_running_loop(), kind="agent", mode="headless")
     s2 = FakeSession()
     s2.runtime = rt2
     assert terminal._accept_user_input(s2, b"task", asyncio.Queue()) is True
     assert rt2.busy and rt2.busy_kind == "user", "用户任务应认领串行锁"
-    return "忙锁逻辑正确"
+
+    # 交互态：输入就是聊天，不该被忙锁拦、也不该认领任务锁
+    rt3 = sessions.Runtime(loop=asyncio.get_running_loop(), kind="agent",
+                           mode="interactive", busy=True, busy_kind="delegate")
+    s3 = FakeSession()
+    s3.runtime = rt3
+    outbox3: asyncio.Queue = asyncio.Queue()
+    assert terminal._accept_user_input(s3, b"hello", outbox3) is True, "交互态输入应放行"
+    assert outbox3.empty(), "交互态不该回 input-rejected"
+    assert rt3.busy_kind == "delegate", "交互态不该改写忙锁"
+    return "忙锁逻辑正确（headless 守门 / interactive 直通）"
 
 
 async def main() -> int:

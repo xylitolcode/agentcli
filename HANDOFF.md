@@ -7,9 +7,17 @@
 ## 1. 项目是什么
 
 把命令行 agent（claude / codex / qwen）搬进浏览器的 Web 控制台：Django + ASGI
-（uvicorn，必须用 uvicorn 才有 WebSocket），PTY 承载交互式 TUI 进程，WebSocket
-原样搬运字节；适配器层把各 agent 的 JSONL 输出归一化成通用事件，驱动目录树标色、
-委派联动。
+（uvicorn，必须用 uvicorn 才有 WebSocket），PTY 承载进程，WebSocket 原样搬运字节。
+
+**形态是双轨（B 路线，2026-11-17 拍板）**：
+- **主面板**：知名 agent 保持**原生交互体验**（多轮、上下文、权限弹窗、slash 命令），
+  控制台只做外壳，不解析它的 ANSI；
+- **委派子槽**：headless（`-p / exec`）承载机器派活，JSONL 归一化成事件，驱动
+  台账、回执、目录树标色；
+- **外包模式**是主打功能：MCP 把 `delegate_task` 暴露给交互态 agent，由 agent 自己
+  判断或被用户告知后**主动调用**；回执作为 tool result 回到它自己的上下文。
+
+结构化事件只在 headless 路径保证，**不为拿事件牺牲 agent 的原生体验**。
 
 - 项目根（WSL）：`/home/xylitol/projects/agentcli`
 - 运行：`.venv/bin/uvicorn agentcli.asgi:application --host 127.0.0.1 --port 8010`
@@ -24,8 +32,9 @@
 console/
   sessions.py    会话注册表（进程内单例）：Runtime 状态、观察者列表、回收扫描
   terminal.py    PTY 生命周期、WS 入口、事件流解析、控制帧处理
-  delegation.py  委派总线：派生子任务、台账、链式外包、回执回灌
-  views.py       HTTP 视图：页面、项目/会话/委派快照、命令降级接口
+  delegation.py  委派总线：派生子任务、台账、链式外包、回执回灌、wait_task
+  bridge.py      交互态编排桥：MCP 配置/token/BASE_URL/系统提示，注入三个 adapter
+  views.py       HTTP 视图：页面、项目/会话/委派快照、命令降级接口、/api/delegate/
   urls.py        路由
   files.py       目录树读取与路径越界守门
   projects.py    Project 台账播种/查询（ORM，WS 里走 sync_to_async）
@@ -49,8 +58,9 @@ console/vite.py    读 .vite/manifest.json，给模板注入带 hash 的资源�
 scripts/
   check_session.py  会话保持回归（8 项）
   check_terminal.py  终端/目录回归（8 项）
-  check_delegation.py 委派链路桩测（a→b→c/忙锁/槽复用，自起 8011）
+  check_delegation.py 委派链路桩测（a→b→c/忙锁/槽复用/交互态直通，自起 8011）
   probe_delegation.py 人工验收（真实 claude 子槽，少量额度）
+  mcp_delegate.py   stdio MCP server：把 delegate_task 转接 /api/delegate/
   stub_agent.py     测试桩 agent（stream-json 假输出）
   smoke.py          冒烟（越界 403 等）
   probe_agents.py   能力探针（basic / --suite broad）
@@ -77,15 +87,23 @@ scripts/
 - `Project` 模型（name/path/agent/enabled/note）；总目录 `~/projects`，进来先选
   项目，选定后终端与目录树限定在项目内；两层路径守门在 `files.py`。
 
-### 3.3 适配器与目录树联动（已完成）
-- 非 TUI 非交互 argv：claude `claude -p --output-format stream-json --verbose
-  --permission-mode acceptEdits`；codex `codex exec --json --skip-git-repo-check
-  --sandbox workspace-write`；qwen `qwen -o stream-json --approval-mode auto-edit`。
+### 3.3 适配器与目录树联动（headless 路径）
+- 每个适配器有 `interactive` 标记：claude/codex/qwen 为 `True`，`stub` 为 `False`。
+  `build_argv(base, prompt, mode, sid)` 两套 argv：
+  - **interactive**（主面板默认）：claude `claude + MCP flags + [prompt]`；
+    codex `codex + MCP flags + [prompt]`；qwen `qwen + MCP flags + ["-i", prompt]`
+    （qwen 的位置参数是 one-shot，必须 `-i`）。不带 prompt 时就是原生 TUI。
+  - **headless**（委派子槽、stub）：claude `-p --output-format stream-json --verbose
+    --permission-mode acceptEdits`；codex `codex exec --json --skip-git-repo-check
+    --sandbox workspace-write`；qwen `-o stream-json --approval-mode auto-edit -p`。
+- **JSONL 解析只在 headless 生效**：`_parse_agent_stream` 见 `runtime.mode !=
+  "headless"` 直接返回，交互 TUI 的 ANSI 不进事件流。
 - 一条 JSONL 挂多工具块时 `parse_events()` 批量出事件；工具归类 read/write/exec，
   PascalCase 与 snake_case 两套命名。
 - 工具事件记入 `Runtime.file_events`（rel 路径 → {read, write}），WS 推
   `agent-event` / `file-events` 帧；前端标蓝（读过 visited）/标黄（改过 modified）。
-  路径在服务端按 `runtime.cwd` 归一为项目内相对路径。
+  路径在服务端按 `runtime.cwd` 归一为项目内相对路径。**交互面板没有这层事件，
+  文件树不标色，属已知降级。**
 - 鉴权注入：codex 启动期只查 `OPENAI_API_KEY` 环境变量、不回读 `~/.codex/auth.json`，
   由 `CodexAdapter.env()` 注入；claude/qwen 读各自 settings.json 的反代段。
 
@@ -113,14 +131,17 @@ scripts/
     级联清理子槽；
   - 台账字段补 `child_sid/depth/child_id`；`DELEGATE_TIMEOUT=120s`、
     `OUTPUT_LIMIT=256KB`、`MAX_CHAIN=4` 级。
-- **忙锁（P1 已落地）**：
+- **忙锁（P1 已落地，仅 headless）**：
   - 派发前查目标槽 `is_busy()`，忙则台账记 `failed`（原因「目标会话忙」）并回灌；
-  - 用户往 agent 会话喂字节时，若 `busy_kind=delegate` 则拒收并回
+  - 用户往 **headless** agent 会话喂字节时，若 `busy_kind=delegate` 则拒收并回
     `input-rejected` 帧（Ctrl-C/D/Z/Esc 放行）；
-  - 带初始任务的会话启动即 `busy=user`；`result` 事件 / EOF 释放。
+  - **交互态不设这道锁**：`_accept_user_input` 见 `mode != "headless"` 直接放行，
+    输入就是聊天，不认领 busy、也不产生 `input-rejected`。
+  - 带初始任务的 headless 会话启动即 `busy=user`；`result` 事件 / EOF 释放。
 - **初始任务入口**：`/ws/terminal/?profile=claude&prompt=...&outsourcing=1`。
-  claude 在真 TTY 下没有 prompt 参数会直接报错（见 §8），所以 agent 会话必须带
-  prompt 起；`outsourcing=1` 让开关赶在第一行输出之前就位。
+  `mode` 可由 query 显式指定（仅 agent 且值合法），否则按 `adapter.interactive`
+  取默认。**交互 agent 可以不带给首条消息直接开会话**（原生 TUI 等输入）；
+  headless（stub）仍必须带任务。
 - **回执晚到**：父进程 EOF 时若名下还有未收口的委派，`_Watcher.on_eof` 只推
   `session-eof` 帧并保留 socket，全部收口后再 close；否则晚到的 `delegate-result`
   会被切断。
@@ -140,10 +161,11 @@ scripts/
 - **父子关系与子会话看屏**：`RoomBar` 是按钮不是旁观条，点一下打开/切到该 sid 的
   面板；子槽显示 `↳ label` + `#sid`，title 带 `父 <sid短>`；已 `eof` 的会话也保留
   （置灰「已结束」），点开可看它最后一眼输出，直到父会话回收（5 分钟）。
-- **派任务入口**：`WorkspaceBar` = profile 下拉 + 任务输入框 + 「派任务/新终端」。
-  agent（kind=agent）任务必填，提交即开新面板，`usePty` 把 `prompt` 与
-  `outsourcing=1` 拼进 WS query（外包开关赶在第一行输出前就位）；shell 只给
-  「新终端」。`Ctrl+Enter` 提交。原来只能手拼 URL `&prompt=` 的入口现在有界面。
+- **派任务入口**：`WorkspaceBar` = profile 下拉 + 任务输入框 + 「开会话/派任务/新终端」。
+  **交互 agent 可空任务直接「开会话」**（进原生 TUI，占位文案注明可空）；headless
+  agent（含 stub）仍必填，按钮文案「派任务」并提示「只支持一次性任务」；shell 只给
+  「新终端」。`usePty` 把 `prompt` 与 `outsourcing=1` 拼进 WS query（外包开关赶在
+  第一行输出前就位）；`Ctrl+Enter` 提交。原来只能手拼 URL `&prompt=` 的入口现在有界面。
 - **首帧缓冲**：终端实例在 effect 里建，WS 回放/首屏字节可能先到 —— 先攒
   `pendingWrites`，`term.open` 后补写，短命会话不会留下空面板。
 - **文件联动 / 外包回执 / 忙锁拒绝**：仍是每个面板就地写终端（蓝/黄标色走全局
@@ -152,13 +174,47 @@ scripts/
   或重开项目按原样还原；URL 带一个布局里没有的 sid（分享链接）时只单开它。子会话
   面板是观察窗，不持久化。
 - **「重开」语义**：离线时回原会话（Shift+点击新开）；主会话已 `ended` 则视为
-  「用同一任务再跑一次」——先 `term.reset()` 擦画面再 `fresh` 重连，避免只回放
-  旧缓冲。**委派子会话**已 `ended` 时改为带 `rerun=1` 接回同一张子槽：服务端
+  「再开一代」——先 `term.reset()` 擦画面再 `fresh` 重连，避免只回放旧缓冲。
+  **交互 agent 可空任务直接重开进 TUI**；headless agent 必须还有任务才能重开。
+  **委派子会话**已 `ended` 时改为带 `rerun=1` 接回同一张子槽：服务端
   `delegation.rerun()` 找该槽最近一条委派任务，用同一 prompt 再派一轮（sid / 父子
   / 槽身份不变，只换一代进程）。`usePty` 在 `close 1000` 时保留 sid，房间条才能
   认出已结束面板。
 - 已知边界：没有委派台账的普通子会话（WS `parent=` 手动派生）没有「重开」；
   WebGL 在多面板下若上下文丢失会自退到 DOM 渲染。
+
+### 3.6 交互态 + MCP 外包桥（M1 / M3a 已完成）
+
+- **主面板默认原生交互**：session 首帧带 `mode`（`interactive` / `headless`），
+  `/api/sessions/` 与 `/api/profiles/` 也暴露 `mode` / `interactive`。
+- **输入语义拆分**：交互态字节直通 PTY，多轮对话、`/` 命令、权限弹窗全归 agent；
+  headless 仍是「任务入口 + 忙锁」。
+- **MCP 桥 `console/bridge.py`**：
+  - 进程内 `TOKEN`（`secrets.token_urlsafe`）+ `BASE_URL`（每次 WS 连接按实际端口回填）；
+  - `mcp_config(sid)` 生成 stdio server 配置（`scripts/mcp_delegate.py --parent-sid <sid>`）；
+  - `claude_flags` / `qwen_flags` / `codex_flags` 注入配置，并附中文系统提示
+    `DELEGATE_PROMPT`（告诉 agent 工具存在、何时用、开关关闭会失败）；
+  - claude/qwen 额外预放行 `mcp__agentcli__delegate_task`（其它工具仍走原生确认），
+    codex 用 `-c mcp_servers.agentcli.{command,args,env}` 覆盖。
+- **MCP server `scripts/mcp_delegate.py`**：stdin/stdout 每行一条 JSON-RPC；
+  `initialize` / `tools/list`（一个 `delegate_task`，target/prompt/timeout_seconds）/
+  `tools/call` / `ping`，未知方法回 -32601。`tools/call` 走
+  `POST /api/delegate/`，把 `ok/reply/error/delegation_id/child_sid/profile` 转成
+  MCP content text。
+- **`/api/delegate/`**：校验 POST + `X-Agentcli-Token`；父会话 `outsourcing=False`
+  回 403「外包模式未开启」；调用 `delegation.dispatch(..., profile=父的 profile)`，
+  `wait_task()` 等 done/failed 后回填。`wait_task` 轮询 pending/running，
+  超时 clamp 5..300s。
+- **实测（真实 claude，sid `7169712384b34d70`）**：
+  - 首轮 `OK`、次轮 `OK2`，同一 TUI 进程上下文延续；
+  - 让 claude 调 `delegate_task(target=stub, prompt=leaf:mcp-ok)`，屏幕显示
+    `Thought for 10s, called agentcli` → 回执 `leaf-ok:mcp-ok`；
+  - 台账：`status=done`、`child_sid=8810ec8e0e31470b`、子会话 `role=child`、
+    `mode=headless`、`eof=True`；服务端日志 `POST /api/delegate/ 200 OK`。
+  - 注意：自动化往 TUI 发消息时，首个 `\r` 可能只落字不提交，**补发一次 `\r`**；
+    人工在浏览器里按回车不受影响。
+- codex 首次进入新 cwd 会停在原生 `Trust and continue` 页，属正常交互，不是卡死；
+  `codex -c mcp_servers... mcp list` 已验证配置可解析。
 
 ## 4. 已验证结论（探针实测，样本在 .event-sample/）
 
@@ -196,19 +252,21 @@ scripts/
 - 用户喂字节时 `busy_kind=delegate` 拒收 + `input-rejected` 帧，中断键放行；
 - 带任务的会话启动即 busy=user，result/EOF 释放。
 
-### P2 回执回灌父 agent 上下文（仍未做，且被形态卡住）
-回执目前只是事件帧推给前端上墙，**不进父 agent 的 LLM 上下文**。根因是父会话
-也是「任务进 argv、跑完即退」的一次性非交互进程（claude 在 TTY 下只认 argv/stdin
-pipe，见 §8），进程退出后没有可写回的上下文通道。要真接上，得先定父会话形态：
-1. 交互式 TUI（PTY 敲键）—— 但 TUI 输出不是 JSONL，事件流/目录树联动会一起丢；
-2. 用 CLI 的 `--resume/--session-id` 续跑，把回执作为下一轮 prompt;
-3. 底座自己持有会话上下文（自建 agent loop），CLI 只当工具执行器。
-这三条都是产品形态选择，不是补丁能解决的。
+### ✅ P2 回执回灌父 agent 上下文（已用 MCP 解）
+旧路径：回执只作为事件帧推给前端上墙，不进父 agent 的 LLM 上下文；根因是父会话
+也是一次性进程，退出后没有可写回的上下文通道。
 
-### P2.5 `Task` 双跑（语义坑，必须先决策）
+2026-11-17 按 B 路线改写：**回执走 MCP tool result**。agent 在原生 TUI 里主动调用
+`delegate_task`，`scripts/mcp_delegate.py` 把 `/api/delegate/` 的 `reply` 作为
+tool result 返回给 agent，天然进入它自己的上下文——父 agent 不需要重启、也不需要
+控制台替它记。实测 claude 收到 `leaf-ok:mcp-ok` 并在会话里原样复述。
+
+### P2.5 `Task` 双跑（交互态已绕开，headless 仍需注意）
 claude / qwen 的 `Task`/`agent` 工具在 CLI 进程内部**已经自己跑了一个子代理**，
 底座又把同一个事件当外部派发，等于同一件活干两遍（父 agent 等的是内部结果，
-底座回执只能上墙）。当前 a→b→c 能跑通是协议层的，不代表不重复劳动。可选解：
+底座回执只能上墙）。**交互态已改由 MCP 主动调用，不再解析 `Task` 自动派发**，
+这条坑只对 headless 路径成立（headless 子槽仍按 `Event.target` 自动派发）。
+可选解：
 - 只用 `SendMessage`（跨会话消息）当委派信号，`Task` 仅观察不派发；
 - 派发前判断目标是否等于本 CLI 内部子代理类型，命中就跳过；
 - 给 CLI 关掉内部子代理（若支持），把委派完全交给底座。
@@ -247,8 +305,9 @@ claude / qwen 的 `Task`/`agent` 工具在 CLI 进程内部**已经自己跑了�
 
 ## 6. 安全债（未处理）
 - RCE 端到端接浏览器，仅绑 127.0.0.1；`DEBUG=True`；`SECRET_KEY` 硬编码；无鉴权；
-  sid 裸 id 未绑用户；注册表进程内单例，多 worker 需换共享存储。仓库已初始化 git
-  （本机提交，尚无 remote），但 P2 的回执进上下文、P2.5 的 Task 双跑仍未定。
+  sid 裸 id 未绑用户；注册表进程内单例，多 worker 需换共享存储。MCP 的
+  `TOKEN` / `BASE_URL` 也是进程内单例，且 `scripts/mcp_delegate.py` 用命令行
+  `--parent-sid` 传递父会话，同机同用户下可伪造——只适合本机单用户场景。
 
 ## 7. 复现与回归命令
 
@@ -270,6 +329,10 @@ CONSOLE_ENABLE_STUB=1 setsid .venv/bin/uvicorn agentcli.asgi:application --host 
   > /tmp/agentcli-8013.log 2>&1 < /dev/null & disown
 ```
 
+- **交互态手动验收**：浏览器 `?project=1&profile=claude` → 空任务点「开会话」，
+  面板里连问两轮看上下文；再让它「调用 delegate_task 派给 stub」，看回执是否
+  显示在 claude 画面里，`GET /api/delegations/?parent=<sid>` 应出现 `done`。
+- 自动化往 TUI 写消息时，首个 `\r` 可能只落字不提交，补发一次 `\r`。
 - 改适配器后用 `.event-sample/` 与 `probe2/` 样本回测归类。
 - 前端 dev 模式：`cd frontend && npm run dev`（5173，代理 `/api`、`/ws` 到 8010）。
 - 临时回测脚本用完即删；复杂回测落盘脚本文件，别用 `wsl bash -lc` 内联字典（引号
@@ -280,10 +343,12 @@ CONSOLE_ENABLE_STUB=1 setsid .venv/bin/uvicorn agentcli.asgi:application --host 
   **本轮修的**：`agentcli/asgi.py` 的 lifespan startup 里 `seed_from_disk()` 没包，
   抛异常后 uvicorn 判定整个 lifespan 不受支持并静默降级 —— 回收扫描器从此没跑过。
   日志特征只有一行 `ASGI 'lifespan' protocol appears unsupported`。
-- claude `-p` 无 prompt 且 stdin `/dev/null` 报错；**真 TTY 下无 prompt 参数也报错**
-  （`Input must be provided either through stdin or as a prompt argument`），所以
-  agent 会话靠 URL `&prompt=` 把任务写进 argv。codex 不回读 auth.json 必须 env 注入；
-  qwen 非交互默认拒写工具，需 approval-mode 放行。
+- claude `-p`（headless）无 prompt 且 stdin `/dev/null` 会报错；**交互 TUI 不带
+  prompt 是正常的**（空着开会话就进原生输入）。旧结论「真 TTY 无 prompt 也报错」
+  只对 `-p` 成立。codex 不回读 auth.json 必须 env 注入；qwen 非交互默认拒写工具，
+  需 approval-mode 放行。
+- 交互 TUI 的 `\r` 提交：自动化脚本首个回车可能只落字不提交，补一次；人工不受影响。
+- codex 首次进新 cwd 停在 `1. Trust and continue` 信任页，属原生交互，不是进程卡死。
 - WSL 起后台 uvicorn 用 `setsid ... < /dev/null & disown`；`pkill -f "uvicorn agentcli"`
   会连自己这条 bash 一起杀（整条命令 exit 15，后面的命令根本不执行），
   先 `ss -ltn | grep 8010` 确认端口的持有者，再分两步重启。
