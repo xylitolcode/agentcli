@@ -89,6 +89,17 @@ export function Header({
         </button>
       )}
 
+      {/* 配置管理是 Django admin，不是这个舞台的一部分 —— 开新标签，别把终端顶掉 */}
+      <a
+        href="/admin/"
+        target="_blank"
+        rel="noreferrer"
+        className={chip}
+        title="配置管理：项目台账 / profile 白名单 / 外包与运行限额（新标签打开）"
+      >
+        配置
+      </a>
+
       <span className="ml-auto min-w-0 truncate text-xs text-faint" title={label}>
         {label}
       </span>

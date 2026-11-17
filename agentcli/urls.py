@@ -5,9 +5,8 @@ The `urlpatterns` list routes URLs to views. For more information please see:
     https://docs.djangoproject.com/en/6.1/topics/http/urls/
 """
 
-from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
+from django.contrib.staticfiles.urls import staticfiles_urlpatterns
 from django.urls import include, path
 
 urlpatterns = [
@@ -16,6 +15,6 @@ urlpatterns = [
 ]
 
 # 服务是用 uvicorn 直接跑 ASGI 的，没有 runserver 那层 StaticFilesHandler，
-# 静态资源（xterm.js 之类）得从 URLconf 走。仅 DEBUG 下生效。
-if settings.DEBUG:
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATICFILES_DIRS[0])
+# 静态资源得从 URLconf 走。只用 staticfiles 这一条：它走 finders，既覆盖
+# STATICFILES_DIRS，也覆盖各 app（含 admin）包内部的静态文件。仅 DEBUG 生效。
+urlpatterns += staticfiles_urlpatterns()
