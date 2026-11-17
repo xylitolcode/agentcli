@@ -60,6 +60,30 @@ def mcp_config(sid: str) -> str:
     return json.dumps({"mcpServers": {"agentcli": _server_spec(sid)}}, ensure_ascii=False)
 
 
+def _hook_script() -> str:
+    return str(Path(__file__).resolve().parent.parent / "scripts" / "hook_event.py")
+
+
+def hook_settings(sid: str) -> str:
+    """claude 的 ``--settings`` 内联 JSON：PostToolUse 旁路上报文件访问。
+
+    交互 TUI 的 stdout 不是 JSONL，目录树拿不到标色。hook 在工具调用后跑一个
+    极轻的本机 POST，只补事件，不影响 TUI 的渲染与权限流程。
+    """
+    command = (
+        f"'{_python()}' '{_hook_script()}' "
+        f"--sid {sid} --token {TOKEN} --url {BASE_URL}"
+    )
+    return json.dumps({
+        "hooks": {
+            "PostToolUse": [{
+                "matcher": "Read|Write|Edit|MultiEdit|NotebookEdit",
+                "hooks": [{"type": "command", "command": command, "timeout": 5}],
+            }],
+        },
+    }, ensure_ascii=False)
+
+
 def claude_flags(sid: str) -> list[str]:
     return [
         "--mcp-config", mcp_config(sid),
@@ -67,6 +91,7 @@ def claude_flags(sid: str) -> list[str]:
         # 仍走 claude 原生的权限确认。
         "--allowedTools", "mcp__agentcli__delegate_task",
         "--append-system-prompt", DELEGATE_PROMPT,
+        "--settings", hook_settings(sid),
     ]
 
 

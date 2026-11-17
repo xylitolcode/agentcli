@@ -143,8 +143,11 @@
 
 ## 7. 尚未做（按 B 路线继续）
 
-1. hooks：claude PostToolUse / qwen hooks 回调控制台，恢复交互态文件树标色与 busy 提示。
-2. codex / qwen 原生 TUI 内的 `delegate_task` 实测（codex 首次进入有 trust 弹窗，属原生行为）。
+1. hooks：claude PostToolUse 已接（`scripts/hook_event.py` + `/api/hook/`，交互态
+   文件树重新标蓝/标黄）；qwen hooks 尚未接，codex 无等价钩子。
+2. codex / qwen 原生 TUI 内的 `delegate_task` 已实测通过（codex 首次有信任页与
+   一次原生审批，qwen 直接放行）。
 3. M2 身份映射：`--resume` / `exec resume` 与控制台 sid 的显式绑定。
-4. 外包开关的 UX：交互态系统提示已告知工具存在，开关关闭时调用会拿到明确失败原因；是否改为「按会话默认开」待定。
+4. 外包开关的 UX：交互态系统提示已告知工具存在，开关关闭时调用会拿到明确失败原因；
+   是否改为「按会话默认开」待定。
 5. token / BASE_URL 仍是进程内单例，多 worker 失效；P4 鉴权与多用户隔离未做。

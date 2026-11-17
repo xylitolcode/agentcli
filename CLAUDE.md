@@ -154,6 +154,11 @@ python manage.py test console.tests.<类>.<方法>
   `--allowedTools` 预放行 `mcp__agentcli__delegate_task`，避免卡在外包工具的权限弹窗
   （其它工具仍原生确认）。codex 无 allowedTools 等价开关，走原生 MCP 审批。
   `TOKEN`/`BASE_URL` 是进程内单例，多 worker 会失效；只适合本机单用户。
+- **hooks（claude 交互态）**：`bridge.hook_settings(sid)` 用 `--settings` 内联 JSON
+  注册 `PostToolUse`，命令跑 `scripts/hook_event.py`，把 `tool_name/tool_input`
+  POST 到 `/api/hook/`（同样校验进程内 token）。端点只记文件访问并向观察者推
+  `agent-event`，不动权限、不阻塞会话；hook 脚本任何失败都静默退出。qwen 尚未接
+  hooks，codex 无等价钩子——这两者在交互态仍没有目录树标色。
 - **profile 白名单**：`CONSOLE_PROFILES` 表决定能拉什么，URL 上是
   `/ws/terminal/?profile=bash&project=3`。只认表里的键，query 不会变成任意命令。
   `available_profiles()` 会探测 PATH（含 `~/.local/bin` 兜底）并回 `interactive`，

@@ -102,8 +102,9 @@ scripts/
   PascalCase 与 snake_case 两套命名。
 - 工具事件记入 `Runtime.file_events`（rel 路径 → {read, write}），WS 推
   `agent-event` / `file-events` 帧；前端标蓝（读过 visited）/标黄（改过 modified）。
-  路径在服务端按 `runtime.cwd` 归一为项目内相对路径。**交互面板没有这层事件，
-  文件树不标色，属已知降级。**
+  路径在服务端按 `runtime.cwd` 归一为项目内相对路径。**交互面板没有 JSONL，但
+  claude 用 `PostToolUse` hook 补了同一条 `agent-event` 通道（见 §3.6）；qwen/codex
+  暂无等价钩子，这两者的面板不标色。**
 - 鉴权注入：codex 启动期只查 `OPENAI_API_KEY` 环境变量、不回读 `~/.codex/auth.json`，
   由 `CodexAdapter.env()` 注入；claude/qwen 读各自 settings.json 的反代段。
 
@@ -213,8 +214,17 @@ scripts/
     `mode=headless`、`eof=True`；服务端日志 `POST /api/delegate/ 200 OK`。
   - 注意：自动化往 TUI 发消息时，首个 `\r` 可能只落字不提交，**补发一次 `\r`**；
     人工在浏览器里按回车不受影响。
-- codex 首次进入新 cwd 会停在原生 `Trust and continue` 页，属正常交互，不是卡死；
-  `codex -c mcp_servers... mcp list` 已验证配置可解析。
+- **hooks 补文件树（claude 已接）**：`bridge.hook_settings(sid)` 用
+  `--settings` 内联 JSON 注册 `PostToolUse`（matcher Read/Write/Edit/MultiEdit/
+  NotebookEdit），命令是 `scripts/hook_event.py --sid --token --url`。脚本读 stdin，
+  把 `tool_name/tool_input` POST 到 `/api/hook/`；端点按 `file_path` 归一成相对路径、
+  记 `file_events` 并向所有观察者推 `agent-event`，前端照旧标蓝/标黄。hook 失败一律
+  吞掉，不阻塞 TUI。**qwen hooks 未接，codex 无等价钩子**，这两条交互态仍不标色。
+- 实测：真实 claude 读 `README.md` → 收到 `Read / README.md / read`；写
+  `tmp_hook_probe.txt` → 收到 `Write / tmp_hook_probe.txt / write`（探针文件已删）。
+- **三 agent 外包实测**：claude / codex / qwen 均成功调用 `delegate_task` 到 stub 子槽，
+  回执分别 `leaf-ok:mcp-ok` / `leaf-ok:codex-mcp` / `leaf-ok:qwen-mcp`；codex 首次
+  需过原生信任页并对 MCP 工具做一次原生审批，qwen 因预放行直接执行。
 
 ## 4. 已验证结论（探针实测，样本在 .event-sample/）
 

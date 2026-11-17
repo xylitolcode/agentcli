@@ -202,3 +202,53 @@ async def delegate_api(request):
         "profile": task.profile,
         "reply": task.reply,
     })
+
+
+# 工具名 -> (取路径的字段, 动作)。claude 的 hook 输入里 Read/Write/Edit 都有
+# file_path；NotebookEdit 用 notebook_path。
+_HOOK_TOOLS = {
+    "Read": ("file_path", "read"),
+    "Write": ("file_path", "write"),
+    "Edit": ("file_path", "write"),
+    "MultiEdit": ("file_path", "write"),
+    "NotebookEdit": ("notebook_path", "write"),
+}
+
+
+@csrf_exempt
+async def hook_api(request):
+    """claude PostToolUse hook 的旁路上报端点。
+
+    交互 TUI 没有 JSONL，目录树标色只能靠 hook。这里只记文件访问并推
+    ``agent-event``，不参与权限、不阻塞 agent；hook 脚本失败也不会影响会话。
+    """
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "只接受 POST"}, status=405)
+    if request.headers.get("X-Agentcli-Token", "") != bridge.TOKEN:
+        return JsonResponse({"ok": False, "error": "token 不匹配"}, status=403)
+
+    try:
+        payload = json.loads(await sync_to_async(lambda: request.body or b"{}")())
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "请求体不是合法 JSON"}, status=400)
+
+    sid = str(payload.get("sid") or "")
+    tool = str(payload.get("tool_name") or "")
+    tool_input = payload.get("tool_input") or {}
+    parent = await sessions.registry.get(sid)
+    if parent is None:
+        return JsonResponse({"ok": False, "error": "会话已回收"}, status=404)
+
+    field, action = _HOOK_TOOLS.get(tool, ("", ""))
+    path = str(tool_input.get(field) or "") if field else ""
+    if not path:
+        return JsonResponse({"ok": True, "ignored": tool})
+
+    rel = terminal._rel_to_cwd(path, parent.runtime.cwd)
+    parent.runtime.record_file(rel, action)
+    event = {"kind": "tool", "tool": tool, "file": rel, "action": action}
+    for watcher in list(parent.runtime.watchers):
+        if hasattr(watcher, "on_event"):
+            watcher.on_event(event)
+    return JsonResponse({"ok": True, "file": rel, "action": action})
+

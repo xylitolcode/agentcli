@@ -13,4 +13,6 @@ urlpatterns = [
     path("api/command/", views.command, name="command"),
     # MCP 工具 delegate_task 的回调（本机 agent 进程用，带进程内 token）
     path("api/delegate/", views.delegate_api, name="delegate"),
+    # claude PostToolUse hook 的旁路上报（交互态补文件树标色）
+    path("api/hook/", views.hook_api, name="hook"),
 ]

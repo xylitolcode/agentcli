@@ -260,8 +260,10 @@ agent 判断该分工、或用户明确要求时调用它；服务端把任务�
 - [ ] 回执进父会话上下文：已由 MCP 解决（旧的一次性路径不再需要）
 - [ ] **`Task` 双跑**：headless 路径仍有「CLI 内部子代理 vs 底座外部子槽」重复风险；
   交互态已改走 MCP，不再自动解析 `Task`
-- [ ] 交互态 hooks：claude PostToolUse / qwen hooks 回调控制台，补回文件树标色与忙态
-- [ ] codex / qwen 的 MCP 外包实测（目前只验了配置可解析、TUI 可启动）
+- [ ] 交互态 hooks：claude 已用 `PostToolUse` 接回文件树标色（`/api/hook/`）；
+  qwen hooks 未接，codex 无等价钩子
+- [x] **外包实测**：claude / codex / qwen 都能在原生 TUI 里主动调 `delegate_task`，
+  回执进入各自上下文；codex 首次有信任页与一次原生工具审批
 - [ ] 鉴权：Django auth 接上，会话按用户隔离（现在是单用户假设）
 - [ ] 审计日志：谁在什么时候、用哪个 agent、动了什么
 - [ ] **agent 独立配置管理页**：反代地址、鉴权/key、模型选择、权限放行档位、
@@ -275,8 +277,9 @@ agent 判断该分工、或用户明确要求时调用它；服务端把任务�
 
 claude / codex / qwen 直接以原生 TUI 启动（claude/qwen 可带首条消息，qwen 用 `-i`），
 权限弹窗、`/model`、`/resume` 等全部由 CLI 自己处理；每个会话额外注入 MCP 桥参数
-（见「外包模式」）。这一态**不解析 JSONL**，所以文件树不标色、房间条不显示 busy，
-属已知降级，不是 bug。
+（见「外包模式」）。这一态**不解析 JSONL**；文件树标色靠 claude 的 `PostToolUse`
+hook 旁路上报（qwen/codex 暂无等价钩子，仍不标色），房间条 busy 也不显示，属已知
+降级，不是 bug。
 
 ### headless 态（委派子槽、stub）
 
