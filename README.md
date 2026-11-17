@@ -85,6 +85,7 @@ python scripts/check_session.py    # 会话保持：断开重连，同进程、�
 python scripts/check_delegation.py # 委派链路：常驻子槽、a→b→c、忙锁、槽复用（桩测）
 python scripts/check_mcp.py        # MCP stdio：初始化、工具列表、参数校验、403、超时夹取（桩测）
 python scripts/check_file.py       # 只读文件接口：正常读取、越界、二进制、截断
+python scripts/check_git.py        # Git 只读接口：分支/状态/提交/重命名/非仓库
 python scripts/probe_delegation.py # 人工验收：真实 claude 当子槽（消耗少量额度）
 ```
 
@@ -216,6 +217,18 @@ UTF-8 解码失败时回退 GB18030，仍失败则标成二进制。
 `console/files.py:resolve()` 是唯一的路径守门员，`..`、绝对路径、外部软链三种越界
 都在那里统一挡掉。要加新接口（读文件、上传、下载）就必须过它。
 
+## Git 只读区
+
+目录树下方是 `GET /api/git/?project=` 支撑的 Git 区：当前分支、ahead/behind、
+工作区状态（已修改/新增/删除/未跟踪/重命名/冲突）和最近 15 条提交。点状态里的
+文件直接进只读查看器；文件树标色优先取 git status，hooks 只补“刚动过”。
+
+服务端只跑固定只读命令（`rev-parse` / `status --porcelain=v1 -z` / `log`），不接受
+前端传参；不是仓库时返回 `repo: false`。控制台**不提供** add / commit / reset /
+checkout，提交仍由用户在终端或让 agent 执行。
+
+右侧目录区可整体折叠成一条竖栏，Git 区自身也能折叠；宽度拖拽结果记在 localStorage。
+
 ## 字体与渲染
 
 字体在**客户端**决定，服务端只发字节 —— 所以同一个会话在 Windows 和 Linux 上看
@@ -279,8 +292,10 @@ UTF-8 解码失败时回退 GB18030，仍失败则标成二进制。
   回执进入各自上下文；codex 首次有信任页与一次原生工具审批
 - [x] **P5a 只读代码查看器**：目录树点文件 → 弹层只读高亮、512KB 截断、二进制提示；
   只保留「插入终端」，不保存、不编辑
-- [ ] **只读代码 / Git 视图（P5）**：P5b `git status` / 提交历史，P5c diff 面板。
-  控制台不做编辑、不代做 add/commit/reset。
+- [x] **P5b Git 只读区**：分支、ahead/behind、工作区状态、最近提交；右侧目录可折叠；
+  文件树标色切到 git status 优先
+- [ ] **P5c diff 视图**：点 commit / 工作区文件看 diff。控制台不做编辑、不代做
+  add/commit/reset。
 - [ ] 鉴权：Django auth 接上，会话按用户隔离（现在是单用户假设）
 - [ ] 审计日志：谁在什么时候、用哪个 agent、动了什么
 - [ ] **agent 独立配置管理页**：反代地址、鉴权/key、模型选择、权限放行档位、

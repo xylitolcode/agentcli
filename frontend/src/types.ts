@@ -56,10 +56,43 @@ export type FileContent = {
   error?: string
 }
 
-/** agent 动过的文件：读过标蓝，写过标黄 */
+/** agent 动过的文件：读过标蓝，写过标黄；git 状态由 git 快照补充 */
 export type FileMark = {
   read: boolean
   write: boolean
+  git?: string
+}
+
+export type GitFile = {
+  path: string
+  code: string
+  kind: 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflicted' | string
+  staged: boolean
+  unstaged: boolean
+  from?: string
+}
+
+export type GitCommit = {
+  hash: string
+  author: string
+  when: string
+  subject: string
+}
+
+export type GitSnapshot = {
+  ok: boolean
+  repo: boolean
+  root?: string
+  branch?: string
+  head?: string
+  detached?: boolean
+  upstream?: string
+  ahead?: number
+  behind?: number
+  files: GitFile[]
+  commits: GitCommit[]
+  truncated?: boolean
+  error?: string
 }
 
 export type SessionInfo = {

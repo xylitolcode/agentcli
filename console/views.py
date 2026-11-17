@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -12,7 +13,7 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
-from . import agent, bridge, delegation, files, projects, sessions, terminal, vite
+from . import agent, bridge, delegation, files, gitview, projects, sessions, terminal, vite
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,21 @@ async def file_api(request):
         return JsonResponse({"ok": False, "error": "文件不存在或不可读"}, status=404)
     except OSError as exc:
         return JsonResponse({"ok": False, "error": f"读取失败：{exc}"}, status=500)
+    payload["ok"] = True
+    return JsonResponse(payload)
+
+
+async def git_api(request):
+    """Git 只读快照：分支、工作区状态、最近提交。不提供任何写操作。"""
+    if request.method != "GET":
+        return JsonResponse({"ok": False, "error": "只接受 GET"}, status=405)
+    project_id = request.GET.get("project", "") or None
+    try:
+        payload = await sync_to_async(gitview.snapshot)(project_id)
+    except files.PathNotFound:
+        return JsonResponse({"ok": False, "error": "项目目录不存在"}, status=404)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return JsonResponse({"ok": False, "error": f"git 读取失败：{exc}"}, status=500)
     payload["ok"] = True
     return JsonResponse(payload)
 

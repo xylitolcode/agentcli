@@ -444,8 +444,10 @@ qwen/codex 都不接，交互态也不追求文件事件结构化；文件改动
 - **P5a 只读文本查看器（已落地）**：目录树点文件 → 弹层只读文本 + `highlight.js`
   语法高亮；后端 `GET /api/file/` 复用 `files.resolve`，超 512KB 截断、二进制/NUL
   提示、UTF-8→GB18030 回退；前端只给「插入终端」与关闭，没有保存/新建/删除。
-- **P5b Git 状态**：面板显示当前分支、`git status`、最近提交；文件树标色优先取
-  git status，交互态没有 hooks 的 qwen/codex 也能看到改动。
+- **P5b Git 状态（已落地）**：右侧目录区可整体折叠/展开（收起后留竖栏，宽度可拖）；
+  下方 Git 只读区显示分支、ahead/behind、工作区状态与最近 15 条提交，点状态文件
+  可直接预览。文件树标色以 git status 优先（M/A/D/?/R），hooks 只作补充。
+  后端 `GET /api/git/` 只跑固定只读命令；非仓库返回 `repo:false`。
 - **P5c Diff**：点 commit 看该提交 diff，点工作区文件看未提交 diff；增删行着色、
   行号、折叠上下文，可复制但不“应用”。
 - **P5d 联动**：`file_events` 只作“刚动过”提示，最终事实以 git 为准。

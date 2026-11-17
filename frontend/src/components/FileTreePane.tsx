@@ -13,6 +13,7 @@ type Props = {
   onToggleHidden: () => void
   selectedPath: string | null
   onSelect: (path: string) => void
+  onCollapse: () => void
 }
 
 export function FileTreePane({
@@ -25,15 +26,26 @@ export function FileTreePane({
   onToggleHidden,
   selectedPath,
   onSelect,
+  onCollapse,
 }: Props) {
   const root = dirs['']
   const entries = root?.status === 'ready' ? root.entries : []
 
   return (
-    <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[10px] border border-line bg-panel">
+    <aside className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-line bg-panel">
       <div className="flex shrink-0 items-center gap-2 border-b border-line bg-panel-2 px-2.5 py-[7px]">
         <span className="text-xs tracking-[0.3px] text-dim">项目目录</span>
         <span className="ml-auto flex items-center gap-1.5">
+          <button
+            onClick={onCollapse}
+            title="折叠项目目录"
+            className="flex items-center justify-center rounded-[5px] border border-transparent p-[3px] leading-none text-dim hover:border-line hover:bg-line-soft hover:text-fg"
+          >
+            <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor"
+              strokeWidth="1.4" aria-hidden="true">
+              <path d="M4.5 3L7.5 6L4.5 9" />
+            </svg>
+          </button>
           <button
             onClick={onToggleHidden}
             title="显示/隐藏隐藏文件"

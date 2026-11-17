@@ -17,12 +17,28 @@ type Props = {
   showHidden: boolean
 }
 
-/** agent 动过的文件要看得出来：写过标黄，只读过标蓝。 */
+/** agent 动过的文件要看得出来：git 状态优先，hooks 只补“刚动过”。 */
 function markClass(mark: FileMark | undefined): string {
   if (!mark) return ''
+  if (mark.git) {
+    if (mark.git === 'modified') return 'text-warn'
+    if (mark.git === 'added') return 'text-[#7ee787]'
+    if (mark.git === 'deleted') return 'text-err'
+    if (mark.git === 'untracked' || mark.git === 'renamed') return 'text-accent'
+    if (mark.git === 'conflicted') return 'text-err'
+  }
   if (mark.write) return 'text-warn'
   if (mark.read) return 'text-accent'
   return ''
+}
+
+const GIT_LABEL: Record<string, string> = {
+  modified: 'M',
+  added: 'A',
+  deleted: 'D',
+  renamed: 'R',
+  untracked: '?',
+  conflicted: '!',
 }
 
 export function FileNode({
@@ -69,11 +85,13 @@ export function FileNode({
         title={
           entry.blocked
             ? '软链指向项目目录之外，不展开'
-            : mark?.write
-              ? `${entry.name}（agent 修改过）`
-              : mark?.read
-                ? `${entry.name}（agent 读过）`
-                : entry.name
+            : mark?.git
+              ? `${entry.name}（git：${mark.git}）`
+              : mark?.write
+                ? `${entry.name}（agent 修改过）`
+                : mark?.read
+                  ? `${entry.name}（agent 读过）`
+                  : entry.name
         }
         style={{ paddingLeft: 8 + depth * 13 }}
         className={
@@ -102,7 +120,10 @@ export function FileNode({
 
         <span className={'flex-1 overflow-hidden text-ellipsis ' + nameTone}>{entry.name}</span>
 
-        {mark?.write && <span className="shrink-0 text-[10px] text-warn">M</span>}
+        {mark?.git && (
+          <span className={'shrink-0 text-[10px] ' + markClass(mark)}>{GIT_LABEL[mark.git] || 'M'}</span>
+        )}
+        {mark?.write && !mark.git && <span className="shrink-0 text-[10px] text-warn">M</span>}
         {!isDir && <span className="shrink-0 pl-2 text-[11px] text-faint">{formatSize(entry.size)}</span>}
       </div>
 

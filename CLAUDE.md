@@ -23,6 +23,7 @@ python scripts/check_session.py             # 会话保持：断线重连同进�
 python scripts/check_delegation.py          # 委派链路：常驻子槽/a→b→c/忙锁（headless）/交互态直通（桩测）
 python scripts/check_mcp.py                 # MCP stdio 协议：初始化/工具列表/参数校验/403/超时夹取（桩测）
 python scripts/check_file.py                # 只读文件接口：读取/越界/二进制/截断
+python scripts/check_git.py                 # Git 只读接口：仓库/分支/状态/重命名/非仓库
 python scripts/probe_delegation.py          # 人工验收：真实 claude 当子槽（消耗少量真实额度）
 python manage.py check
 python manage.py test console.tests.<类>.<方法>
@@ -205,6 +206,10 @@ python manage.py test console.tests.<类>.<方法>
 - **代码查看器**：`FileNode` 点文件 → `CodeViewer`（fixed 遮罩 + 88vh 面板），
   `highlight.js` 按扩展名高亮，未知类型 <80KB 自动识别、>200KB 纯文本；
   只提供「插入终端」和 Esc 关闭，**没有保存/编辑**。
+- **右侧栏**：目录树 + `GitPane` 同一列；目录区可折叠成 34px 竖栏（localStorage
+  记住），Git 区自身可折叠。`GitPane` 显示分支/ahead-behind/status/最近提交，
+  点状态文件进只读查看器。文件树 `marks` 先合并 git status（M/A/D/?/R），hooks
+  的 read/write 只作补充。`/api/git/` 只跑固定只读命令，不接受前端传参。
 - **前端工程**：`frontend/`（React 19 + TS + Tailwind 4 + Vite 8 + xterm 6），构建到
   `static/dist/`。Django 模板只有 17 行 —— 一个 `#root` 挂载点 + `json_script` 注入
   的 bootstrap，界面全在 React 里。`console/vite.py` 读 manifest 拿到带 hash 的资源名。

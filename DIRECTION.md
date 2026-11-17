@@ -185,10 +185,14 @@ claude 现有 hook 是可拆卸旁路：身份以 `--session-id` 为主，hook �
   `CONSOLE_FILE_LIMIT`（512KB）截断，二进制/NUL 检测，UTF-8 → GB18030 回退。
 - 查看器只提供「插入终端」和关闭；没有保存/新建/删除，和 agent 的改动不打架。
 
-**P5b Git 状态与历史**
-- 新面板显示当前分支、`git status`（已修改/未跟踪/暂存）、最近提交列表。
-- 文件树的标色可优先来自 git status，而不是只靠 agent 的 hooks：这样用户自己或
-  agent 在终端里改的文件都能看见。
+**P5b Git 状态与历史（已落地）**
+- 右侧目录区可整体折叠成一条竖栏，展开后宽度仍可拖拽；状态记在 localStorage。
+- 目录树下新增 Git 只读区：当前分支、ahead/behind、工作区状态、最近 15 条提交；
+  Git 区自身也可折叠。
+- 文件树标色改为 **git status 优先**（M/A/D/?/R），hooks 只补“刚动过”；
+  点状态里的文件可直接进只读查看器（已删除文件不预览）。
+- 后端 `GET /api/git/?project=`：固定只读命令（`rev-parse` / `status --porcelain=v1 -z`
+  / `log`），不接受参数注入；不是仓库时返回 `repo:false`，不报错。
 - 只读：不提供 add / commit / reset / checkout 按钮；真要提交仍由用户在终端或让
   agent 执行。
 

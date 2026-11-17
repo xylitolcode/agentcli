@@ -40,3 +40,17 @@ export function RefreshIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+export function GitBranchIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor"
+      strokeWidth="1.3" strokeLinecap="round" className={className} aria-hidden="true">
+      <circle cx="4" cy="3" r="1.4" />
+      <circle cx="4" cy="12.5" r="1.4" />
+      <circle cx="11.5" cy="6" r="1.4" />
+      <path d="M4 4.4v6.7" />
+      <path d="M4 7.5h3.2a4.3 4.3 0 0 0 4.3-4.3V7.4" transform="translate(0 0)" />
+      <path d="M11.5 7.4v4.8" />
+    </svg>
+  )
+}

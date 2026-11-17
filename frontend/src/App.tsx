@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react'
 
 import { CodeViewer } from './components/CodeViewer'
 import { FileTreePane } from './components/FileTreePane'
+import { GitPane } from './components/GitPane'
 import { Header } from './components/Header'
 import { ProjectPicker } from './components/ProjectPicker'
 import { SessionPanel } from './components/SessionPanel'
@@ -11,6 +12,7 @@ import { Splitter } from './components/Splitter'
 import { StatusBar } from './components/StatusBar'
 import { WorkspaceBar } from './components/WorkspaceBar'
 import { useFileTree } from './hooks/useFileTree'
+import { useGit } from './hooks/useGit'
 import { useRoom } from './hooks/useRoom'
 import { shellQuote } from './lib/format'
 import { isFontInstalled } from './lib/terminal'
@@ -138,6 +140,9 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
   const [fileMarks, setFileMarks] = useState<Record<string, FileMark>>({})
 
   const [treeWidth, setTreeWidth] = useState(DEFAULT_TREE)
+  const [treeCollapsed, setTreeCollapsed] = useState(
+    () => localStorage.getItem('agentcli.tree.collapsed') === '1',
+  )
   const [showHidden, setShowHidden] = useState(false)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [viewPath, setViewPath] = useState<string | null>(null)
@@ -194,8 +199,32 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
 
   const { sessions, refresh: refreshRoom } = useRoom()
   const { dirs, load, refresh } = useFileTree(projectId)
+  const { git, loading: gitLoading, error: gitError, refresh: refreshGit } = useGit(projectId)
 
   const fontOk = useMemo(() => isFontInstalled('Sarasa Term SC Nerd'), [])
+
+  // git status 优先：agent hooks 只补“刚动过”，最终事实以 git 为准
+  const treeMarks = useMemo(() => {
+    const merged: Record<string, FileMark> = { ...fileMarks }
+    for (const file of git?.files ?? []) {
+      const previous = merged[file.path]
+      merged[file.path] = {
+        read: previous?.read ?? false,
+        write: previous?.write ?? false,
+        git: file.kind,
+      }
+    }
+    return merged
+  }, [fileMarks, git])
+
+  useEffect(() => {
+    localStorage.setItem('agentcli.tree.collapsed', treeCollapsed ? '1' : '0')
+  }, [treeCollapsed])
+
+  const refreshTreeAndGit = useCallback(() => {
+    refresh()
+    void refreshGit()
+  }, [refresh, refreshGit])
 
   const project = useMemo(
     () => bootstrap.projects.find((p) => p.id === projectId),
@@ -434,7 +463,9 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
     setTreeWidth(Math.min(Math.max(window.innerWidth - clientX - 8, MIN_TREE), max))
   }, [])
 
-  const workspaceStyle = { '--tree-w': `${treeWidth}px` } as CSSProperties
+  const workspaceStyle = {
+    '--tree-w': treeCollapsed ? '34px' : `${treeWidth}px`,
+  } as CSSProperties
 
   if (!projectId) {
     return (
@@ -460,7 +491,13 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
     <div className="flex h-full flex-col">
       <Header label={project ? `${project.name} · ${project.path}` : bootstrap.rootPath} />
 
-      <main className="workspace min-h-0 flex-1 px-3.5 pb-2.5 pt-3" style={workspaceStyle}>
+      <main
+        className={
+          'workspace min-h-0 flex-1 px-3.5 pb-2.5 pt-3 ' +
+          (treeCollapsed ? 'workspace-tree-collapsed' : '')
+        }
+        style={workspaceStyle}
+      >
         <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[10px] border border-line bg-panel">
           <WorkspaceBar
             profiles={bootstrap.profiles}
@@ -538,18 +575,51 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
           )}
         </section>
 
-        <Splitter onDrag={handleDrag} onDragEnd={() => undefined} />
-        <FileTreePane
-          dirs={dirs}
-          marks={fileMarks}
-          onLoadDir={load}
-          onRefresh={refresh}
-          onOpenFile={handleOpenFile}
-          showHidden={showHidden}
-          onToggleHidden={() => setShowHidden((v) => !v)}
-          selectedPath={selectedPath}
-          onSelect={setSelectedPath}
-        />
+        {treeCollapsed ? (
+          <>
+            <div className="splitter opacity-0" />
+            <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[10px] border border-line bg-panel">
+              <button
+                onClick={() => setTreeCollapsed(false)}
+                title="展开项目目录"
+                className="flex h-full w-full flex-col items-center gap-2 pt-3 text-dim hover:bg-line-soft hover:text-fg"
+              >
+                <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor"
+                  strokeWidth="1.4" aria-hidden="true">
+                  <path d="M7.5 3L4.5 6L7.5 9" />
+                </svg>
+                <span className="text-[10px] tracking-[2px]" style={{ writingMode: 'vertical-rl' }}>
+                  项目目录
+                </span>
+              </button>
+            </aside>
+          </>
+        ) : (
+          <>
+            <Splitter onDrag={handleDrag} onDragEnd={() => undefined} />
+            <div className="flex min-h-0 min-w-0 flex-col gap-2.5">
+              <FileTreePane
+                dirs={dirs}
+                marks={treeMarks}
+                onLoadDir={load}
+                onRefresh={refreshTreeAndGit}
+                onOpenFile={handleOpenFile}
+                showHidden={showHidden}
+                onToggleHidden={() => setShowHidden((v) => !v)}
+                selectedPath={selectedPath}
+                onSelect={setSelectedPath}
+                onCollapse={() => setTreeCollapsed(true)}
+              />
+              <GitPane
+                git={git}
+                loading={gitLoading}
+                error={gitError}
+                onRefresh={() => void refreshGit()}
+                onOpenFile={handleOpenFile}
+              />
+            </div>
+          </>
+        )}
       </main>
 
       {viewPath && (

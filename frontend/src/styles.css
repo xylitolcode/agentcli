@@ -64,6 +64,11 @@
     grid-template-columns: minmax(0, 1fr) 7px var(--tree-w, 330px);
   }
 
+  /* 目录收起后只留一条竖栏，不再保留拖拽区 */
+  .workspace.workspace-tree-collapsed {
+    grid-template-columns: minmax(0, 1fr) 0 34px;
+  }
+
   .splitter {
     position: relative;
     cursor: col-resize;
@@ -138,6 +143,10 @@
     .workspace {
       grid-template-columns: 1fr;
       grid-template-rows: minmax(0, 1.4fr) 6px minmax(0, 1fr);
+    }
+
+    .workspace.workspace-tree-collapsed {
+      grid-template-rows: minmax(0, 1fr) 0 34px;
     }
 
     .splitter {
