@@ -26,11 +26,17 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
+from . import config
+
 logger = logging.getLogger(__name__)
 
-# 重连回放的历史缓冲上限：超出后丢最老的字节。缓冲只服务「刚连上那一下看
-# 到之前的画面」，完整回滚终端不依赖它（xterm 自己有 scrollback）。
-REPLAY_LIMIT = 256 * 1024
+
+# 字段默认走 fallback 常量；真实值在 registry.create() 里从配置取后覆盖。
+# 这样既不在 async 上下文的 default_factory 里碰 ORM，又让绝大多数会话拿到
+# 后台配置的最新值。
+DEFAULT_REPLAY_LIMIT = 256 * 1024
+
+
 # 进程退出后，死会话留在表里供重连回看的时长（秒）
 DEAD_TTL = 30.0
 # 有常驻子槽的父会话：它一回收就会级联清掉所有子槽，子代理的「案发现场」
@@ -65,8 +71,10 @@ class Runtime:
     agent_sid: str = ""
     resumable: bool = False
     cwd: str = ""
-    # 环形缓冲：最近一段输出，供重连回放
-    buffer: collections.deque[bytes] = field(default_factory=lambda: collections.deque(maxlen=REPLAY_LIMIT))
+    replay_limit: int = DEFAULT_REPLAY_LIMIT
+    # 环形缓冲：最近一段输出，供重连回放。上限在本会话创建时从配置取一次，
+    # 之后固定 —— 运行中改配置对新会话生效，不动已有会话的缓冲结构。
+    buffer: collections.deque[bytes] = field(default_factory=lambda: collections.deque(maxlen=DEFAULT_REPLAY_LIMIT))
     buffer_size: int = 0
     # 观察者列表：一个会话可被多个连接/面板订阅（多标签、父子会话回灌）
     watchers: list[object] = field(default_factory=list)
@@ -114,9 +122,10 @@ class Runtime:
     def push_output(self, chunk: bytes) -> None:
         if not chunk:
             return
-        if self.buffer_size + len(chunk) > REPLAY_LIMIT:
+        limit = self.replay_limit
+        if self.buffer_size + len(chunk) > limit:
             # 把最老的条目裁到够装新块为止
-            while self.buffer and self.buffer_size + len(chunk) > REPLAY_LIMIT:
+            while self.buffer and self.buffer_size + len(chunk) > limit:
                 old = self.buffer.popleft()
                 self.buffer_size -= len(old)
         self.buffer.append(chunk)
@@ -161,7 +170,10 @@ class SessionRegistry:
         """
         async with self._lock:
             sid = uuid.uuid4().hex[:16]
-            runtime = Runtime(loop=asyncio.get_running_loop())
+            # 回放上限从配置取（async 安全）；新建会话才生效，不动已有会话
+            limit = (await config.runtime_limit_async()).replay_limit
+            runtime = Runtime(loop=asyncio.get_running_loop(), replay_limit=limit)
+            runtime.buffer = collections.deque(maxlen=limit)
             session = _Session(sid=sid, runtime=runtime, registry=self)
             await factory(session)
             self._sessions[sid] = session

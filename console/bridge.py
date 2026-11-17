@@ -26,13 +26,11 @@ TOKEN = secrets.token_urlsafe(24)
 # 子槽（headless）不挂 MCP，不依赖这个值。
 BASE_URL = "http://127.0.0.1:8010"
 
-# 交互会话的系统提示补充：告诉 agent 这个工具存在、什么时候该用。
-DELEGATE_PROMPT = (
+# 兜底提示词：正常路径由 terminal_ws 从数据库取后经 PtySpec 传入。
+# 这里只在未走主链路（如单测直接调 flags）时兜底，绝不在 async 路径查库。
+_DEFAULT_PROMPT = (
     "你可以通过 MCP 工具 agentcli.delegate_task 把子任务外包给本机的另一个 agent。"
-    "参数 target 是目标 agent（claude / codex / qwen / stub 之一），prompt 是完整、"
-    "自包含的任务描述（对方看不到你的上下文）。工具会阻塞到对方跑完并返回回执。"
-    "只在用户明确要求分工、或你判断另一个 agent 更适合这件活时使用；普通的读写、"
-    "搜索不要动用它。用户可以在控制台关闭外包开关，关闭后调用会返回失败原因。"
+    "target 是目标 agent，prompt 是完整自包含的任务描述。"
 )
 
 
@@ -91,22 +89,22 @@ def hook_settings(sid: str) -> str:
     }, ensure_ascii=False)
 
 
-def claude_flags(sid: str) -> list[str]:
+def claude_flags(sid: str, delegate_prompt: str = "") -> list[str]:
     return [
         "--mcp-config", mcp_config(sid),
         # 外包是用户开过开关才生效的动作，别让它卡在工具许可弹窗里；其它工具
         # 仍走 claude 原生的权限确认。
         "--allowedTools", "mcp__agentcli__delegate_task",
-        "--append-system-prompt", DELEGATE_PROMPT,
+        "--append-system-prompt", delegate_prompt or _DEFAULT_PROMPT,
         "--settings", hook_settings(sid),
     ]
 
 
-def qwen_flags(sid: str) -> list[str]:
+def qwen_flags(sid: str, delegate_prompt: str = "") -> list[str]:
     return [
         "--mcp-config", mcp_config(sid),
         "--allowed-tools", "mcp__agentcli__delegate_task",
-        "--append-system-prompt", DELEGATE_PROMPT,
+        "--append-system-prompt", delegate_prompt or _DEFAULT_PROMPT,
     ]
 
 

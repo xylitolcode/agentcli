@@ -7,7 +7,6 @@ import logging
 import subprocess
 
 from asgiref.sync import sync_to_async
-from django.conf import settings
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
@@ -16,6 +15,7 @@ from django.views.decorators.http import require_POST
 from . import (
     agent,
     bridge,
+    config,
     delegation,
     diffview,
     files,
@@ -41,7 +41,7 @@ def index(request):
     """
     root = files.root()
     profiles = terminal.available_profiles()
-    default = settings.CONSOLE_DEFAULT_PROFILE
+    default = config.default_profile()
     if profiles and not any(p["name"] == default for p in profiles):
         default = profiles[0]["name"]
 
@@ -289,10 +289,11 @@ async def delegate_api(request):
     if task is None:
         return JsonResponse({"ok": False, "error": "目标不是可用的 agent"}, status=400)
 
+    cfg = await config.delegate_config_async()
     try:
-        timeout = int(payload.get("timeout") or delegation.DELEGATE_TIMEOUT)
+        timeout = int(payload.get("timeout") or cfg.timeout)
     except (TypeError, ValueError):
-        timeout = delegation.DELEGATE_TIMEOUT
+        timeout = cfg.timeout
     timeout = max(5, min(timeout, 300))
     await delegation.wait_task(task, timeout=timeout)
     if task.status != "done":

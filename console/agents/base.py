@@ -76,6 +76,7 @@ class Adapter:
         sid: str = "",
         agent_sid: str = "",
         resume: str = "",
+        delegate_prompt: str = "",
     ) -> list[str]:
         """启动参数。
 

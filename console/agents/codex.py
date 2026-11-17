@@ -43,6 +43,7 @@ class CodexAdapter(Adapter):
         sid: str = "",
         agent_sid: str = "",
         resume: str = "",
+        delegate_prompt: str = "",
     ) -> list[str]:
         if mode == "interactive":
             # codex 不带子命令就是 TUI；MCP 用 -c 覆盖 mcp_servers 表。

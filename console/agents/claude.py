@@ -35,6 +35,7 @@ class ClaudeAdapter(Adapter):
         sid: str = "",
         agent_sid: str = "",
         resume: str = "",
+        delegate_prompt: str = "",
     ) -> list[str]:
         if mode == "interactive":
             # 原生 TUI：多轮、上下文、权限确认都由 claude 自己管。只补一个
@@ -42,7 +43,7 @@ class ClaudeAdapter(Adapter):
             argv = list(base_argv)
             if sid:
                 from .. import bridge
-                argv += bridge.claude_flags(sid)
+                argv += bridge.claude_flags(sid, delegate_prompt=delegate_prompt)
             if resume:
                 # 续上一轮：上下文、历史、工具结果都从 claude 自己的会话里回来
                 argv += ["--resume", resume]

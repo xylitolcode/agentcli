@@ -27,6 +27,7 @@ class StubAdapter(Adapter):
         sid: str = "",
         agent_sid: str = "",
         resume: str = "",
+        delegate_prompt: str = "",
     ) -> list[str]:
         argv = list(base_argv)
         if prompt:

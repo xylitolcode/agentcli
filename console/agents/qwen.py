@@ -25,13 +25,14 @@ class QwenAdapter(Adapter):
         sid: str = "",
         agent_sid: str = "",
         resume: str = "",
+        delegate_prompt: str = "",
     ) -> list[str]:
         if mode == "interactive":
             # 原生 TUI；带初始任务要用 -i，位置参数是 one-shot。
             argv = list(base_argv)
             if sid:
                 from .. import bridge
-                argv += bridge.qwen_flags(sid)
+                argv += bridge.qwen_flags(sid, delegate_prompt=delegate_prompt)
             if prompt:
                 argv += ["-i", prompt]
             return argv

@@ -41,7 +41,7 @@ from urllib.parse import parse_qs
 
 from django.conf import settings
 
-from . import agents, bridge, delegation, files, projects, sessions
+from . import agents, bridge, config, delegation, files, projects, sessions
 
 logger = logging.getLogger(__name__)
 
@@ -86,17 +86,33 @@ def resolve_profile(name: str) -> tuple[str, list[str]] | None:
 
 
 def available_profiles() -> list[dict]:
-    """当前机器上真正能拉起来的那几个，前端只显示这些。"""
+    """当前机器上真正能拉起来的那几个，前端只显示这些。
+
+    白名单（能不能拉起进程）仍由 settings 定；数据库里的 Profile 行决定启用状态、
+    展示名和排序。表里没记录的 profile 按「启用」处理，保证刚迁移/未播种时界面不变。
+    """
+    rows = {p.name: p for p in config.profile_rows()}
     items = []
-    for name in settings.CONSOLE_PROFILES:
+    # 先按数据库里配置的顺序排，表里没有的按原白名单顺序跟在后面
+    names = sorted(
+        settings.CONSOLE_PROFILES,
+        key=lambda n: (rows[n].sort_order if n in rows else 10_000, n),
+    )
+    for name in names:
+        row = rows.get(name)
+        if row and not row.enabled:
+            continue
         resolved = resolve_profile(name)
         if resolved:
             # kind / interactive 给前端用：交互态 agent 可以空着开（原生 TUI），
             # headless 才必须带初始任务（`-p` 没有任务直接报错）。
             adapter = agents.get_adapter(name)
             items.append({
-                "name": name, "path": resolved[1][0], "kind": adapter.kind,
+                "name": name,
+                "path": resolved[1][0],
+                "kind": adapter.kind,
                 "interactive": adapter.interactive,
+                "label": (row.label if row and row.label else adapter.label),
             })
     return items
 
@@ -130,6 +146,8 @@ class PtySpec:
     agent_sid: str = ""
     # 重开时要求 CLI 续上的旧 session id
     resume: str = ""
+    # 外包提示词：会话启动时从配置取一次，经此传给 bridge 注入 TUI
+    delegate_prompt: str = ""
 
 
 def _spawn(spec: PtySpec, runtime: sessions.Runtime, sid: str = "") -> None:
@@ -154,6 +172,7 @@ def _spawn(spec: PtySpec, runtime: sessions.Runtime, sid: str = "") -> None:
         argv = adapter.build_argv(
             spec.argv, prompt=spec.prompt or None, mode=spec.mode, sid=sid,
             agent_sid=agent_sid, resume=spec.resume if resumable else "",
+            delegate_prompt=spec.delegate_prompt,
         )
 
     pid, fd = pty.fork()
@@ -331,7 +350,8 @@ class _Watcher:
 
     async def _close_after_pending(self) -> None:
         """等名下委派全部收口再关连接；超时上限跟着子任务超时走。"""
-        deadline = time.monotonic() + delegation.DELEGATE_TIMEOUT * 2
+        timeout = (await config.delegate_config_async()).timeout
+        deadline = time.monotonic() + timeout * 2
         while time.monotonic() < deadline:
             if not delegation.pending_for(self._session.sid):
                 break
@@ -365,7 +385,7 @@ class _Watcher:
 
 
 def _resolve_spec(
-    query: dict[str, list[str]], project: dict | None
+    query: dict[str, list[str]], project: dict | None, delegate_prompt: str = ""
 ) -> tuple[PtySpec | None, str | None]:
     """按 query 解析 profile 与项目；返回 (spec, 错误提示)。
 
@@ -381,9 +401,10 @@ def _resolve_spec(
     resolved = resolve_profile(wanted) or resolve_profile(settings.CONSOLE_DEFAULT_PROFILE)
 
     # 默认的和请求的都不在，就退到这台机器上第一个能用的
+    # 直接遍历 settings 白名单（内存数据，async 安全），不经 available_profiles 的 ORM 查询
     if resolved is None:
-        for item in available_profiles():
-            resolved = resolve_profile(item["name"])
+        for name in settings.CONSOLE_PROFILES:
+            resolved = resolve_profile(name)
             if resolved:
                 break
 
@@ -418,6 +439,7 @@ def _resolve_spec(
         cwd=cwd, argv=argv, profile=profile,
         project_id=project["id"] if project else None,
         kind=adapter.kind, prompt=prompt, mode=mode, resume=resume,
+        delegate_prompt=delegate_prompt,
     ), None
 
 
@@ -482,7 +504,9 @@ async def terminal_ws(scope, receive, send) -> None:
     if session is None:
         pid_param = (query.get("project") or [""])[0].strip()
         project = await projects.get_project_async(pid_param) if pid_param else None
-        spec, hint = _resolve_spec(query, project)
+        # 外包提示词在 async 上下文里取一次，后续同步的 _resolve_spec/_spawn 只透传
+        cfg = await config.delegate_config_async()
+        spec, hint = _resolve_spec(query, project, delegate_prompt=cfg.prompt)
         if spec is None:
             await send({"type": "websocket.send", "bytes": hint.encode()})
             await send({"type": "websocket.close", "code": 1011})

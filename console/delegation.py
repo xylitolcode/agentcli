@@ -32,16 +32,13 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
-from . import agents, sessions
+from . import agents, config, sessions
 
 logger = logging.getLogger(__name__)
 
-# 子任务最长运行时间（秒）。非交互问答不该长跑，超时按 failed 收。
-DELEGATE_TIMEOUT = 120.0
-# 子进程输出采集上限（字节），超了截断，避免一个失控子任务撑爆内存。
-OUTPUT_LIMIT = 256 * 1024
-# 链路层级上限：a→b→c→d 就到顶，挡住互相甩锅式的递归外包。
-MAX_CHAIN = 4
+# 配置从 console.config 现取（数据库为真相源，settings 兜底）。
+# 这里刻意不保留模块级常量：常量在 import 期固化，后台改完不生效。
+# 需要默认值时用 config.delegate_config() 的字段，别再定义一份。
 
 
 @dataclass
@@ -112,12 +109,14 @@ def pending_for(parent_sid: str) -> list[Delegation]:
     ]
 
 
-async def wait_task(task: Delegation, timeout: float = DELEGATE_TIMEOUT) -> Delegation:
+async def wait_task(task: Delegation, timeout: float | None = None) -> Delegation:
     """阻塞到任务收口（done/failed），供 MCP 的同步工具调用使用。
 
     交互式 agent 的 ``delegate_task`` 是阻塞调用：必须等回执，才能把结果作为
-    tool result 还给 agent 自己的上下文。
+    tool result 还给 agent 自己的上下文。timeout=None 时现取数据库配置。
     """
+    if timeout is None:
+        timeout = (await config.delegate_config_async()).timeout
     waited = 0.0
     while task.status in ("pending", "running") and waited < timeout:
         await asyncio.sleep(0.1)
@@ -183,8 +182,9 @@ async def dispatch(
     # 链式登记：父任务（若本会话是被外包来的子任务）挂上下一级
     _link_parent(parent_session, task)
 
-    if depth > MAX_CHAIN:
-        _fail(parent_session, task, f"链路已到 {MAX_CHAIN} 级，拒绝继续外包")
+    max_chain = (await config.delegate_config_async()).max_chain
+    if depth > max_chain:
+        _fail(parent_session, task, f"链路已到 {max_chain} 级，拒绝继续外包")
         return task
 
     slot = await _slot_for(parent_session, child_profile, target or "", cwd)
@@ -275,7 +275,9 @@ async def _launch(parent_session, slot: sessions._Session, task: Delegation) -> 
         kind="agent", prompt=task.prompt, mode="headless",
     )
     task.status = "running"
-    watcher = _ChildWatcher(parent_session, slot, task)
+    # 单次任务开始时取一次限额（async 安全），避免每个 chunk 都查库
+    output_limit = (await config.delegate_config_async()).output_limit
+    watcher = _ChildWatcher(parent_session, slot, task, output_limit)
     task.watcher = watcher
     await sessions.registry.attach(slot, watcher)
 
@@ -296,17 +298,19 @@ async def _launch(parent_session, slot: sessions._Session, task: Delegation) -> 
 class _ChildWatcher:
     """子槽的采集观察者：攒输出、记 result、EOF 时收口这条委派任务。"""
 
-    def __init__(self, parent_session, slot: sessions._Session, task: Delegation) -> None:
+    def __init__(self, parent_session, slot: sessions._Session, task: Delegation,
+                 output_limit: int) -> None:
         self.parent_session = parent_session
         self.slot = slot
         self.task = task
         self.raw = bytearray()
+        self.output_limit = output_limit
         self.result = ""
         # 下级回执帧（链式合并走 _wait_child，这里只留痕便于排查）
         self.nested: list[dict] = []
 
     def on_output(self, chunk: bytes) -> None:
-        room = OUTPUT_LIMIT - len(self.raw)
+        room = self.output_limit - len(self.raw)
         if room > 0:
             self.raw.extend(chunk[:room])
 
@@ -334,7 +338,7 @@ async def _finish(parent_session, slot: sessions._Session, task: Delegation,
     # 否则子进程退出得比派发协程快时，child_id 还没登记就收口了。
     await asyncio.sleep(0.3)
 
-    reply = result_text or _collect_reply(task.profile, raw)
+    reply = result_text or _collect_reply(task.profile, raw, watcher.output_limit)
     child = _tasks.get(task.child_id) if task.child_id else None
     if child is not None:
         await _wait_child(child)
@@ -363,7 +367,8 @@ async def _release(slot: sessions._Session, task: Delegation, watcher: "_ChildWa
 
 async def _watch_timeout(parent_session, slot: sessions._Session, task: Delegation) -> None:
     """超时兜底：杀进程、按 failed 收口。"""
-    deadline = time.monotonic() + DELEGATE_TIMEOUT
+    timeout = (await config.delegate_config_async()).timeout
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if task.status in ("done", "failed"):
             return
@@ -374,7 +379,7 @@ async def _watch_timeout(parent_session, slot: sessions._Session, task: Delegati
     from . import terminal
 
     task.status = "failed"
-    task.error = f"子任务超时（{DELEGATE_TIMEOUT:.0f}s）"
+    task.error = f"子任务超时（{timeout:.0f}s）"
     task.finished_at = time.monotonic()
     terminal.close_pty(slot.runtime)
     watcher = task.watcher
@@ -416,8 +421,10 @@ def _extract_prompt(event: dict) -> str:
     return text.strip()
 
 
-async def _wait_child(child: Delegation, timeout: float = DELEGATE_TIMEOUT) -> None:
+async def _wait_child(child: Delegation, timeout: float | None = None) -> None:
     """阻塞到链式下级收口（done/failed），超时放弃。"""
+    if timeout is None:
+        timeout = (await config.delegate_config_async()).timeout
     waited = 0.0
     while waited < timeout:
         if child.status in ("done", "failed"):
@@ -434,12 +441,15 @@ def _base_argv(profile: str) -> list[str] | None:
     return resolved[1] if resolved else None
 
 
-def _collect_reply(profile: str, stdout: bytes) -> str:
+def _collect_reply(profile: str, stdout: bytes, limit: int | None = None) -> str:
     """从子槽输出提取最终回执。
 
     非交互 agent 多为 stream-json：优先取 result 事件；取不到就把最后
-    一段文本拼接返回。
+    一段文本拼接返回。limit 由调用方传入（async 里不能同步查库）；不传时
+    用同步读取，仅供测试/同步场景。
     """
+    if limit is None:
+        limit = config.delegate_config().output_limit
     adapter = agents.get_adapter(profile)
     result_text = ""
     text_parts: list[str] = []
@@ -459,8 +469,8 @@ def _collect_reply(profile: str, stdout: bytes) -> str:
                 text_parts.append(ev.text)
 
     if result_text:
-        return result_text[:OUTPUT_LIMIT]
-    return "\n".join(text_parts).strip()[:OUTPUT_LIMIT]
+        return result_text[:limit]
+    return "\n".join(text_parts).strip()[:limit]
 
 
 def _deliver(parent_session, task: Delegation) -> None:

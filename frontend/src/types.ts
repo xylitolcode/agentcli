@@ -8,6 +8,8 @@ export type Profile = {
   interactive?: boolean
   /** agent 必须带初始任务才能起；shell 可以空着开 */
   kind: 'agent' | 'shell' | string
+  /** 后台配置的展示名（admin 可改），没配时用 name */
+  label?: string
 }
 
 export type Project = {

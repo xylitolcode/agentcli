@@ -202,6 +202,13 @@ select,
   color: var(--body-fg);
 }
 
+/* 原生勾选框在暗底上是一块死白，accent-color 直接把它染成磷光青 */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+  background: transparent;
+}
+
 input:focus,
 textarea:focus,
 select:focus {

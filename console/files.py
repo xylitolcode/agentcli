@@ -19,9 +19,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from django.conf import settings
-
-from . import projects
+from . import config, projects
 
 
 class PathOutsideRoot(Exception):
@@ -43,7 +41,7 @@ def read_text(rel: str, project_id: str | int | None = None) -> dict:
         raise PathNotFound(rel)
 
     stat = target.stat()
-    limit = int(settings.CONSOLE_FILE_LIMIT)
+    limit = config.runtime_limit().file_limit
     with open(target, "rb") as handle:
         data = handle.read(limit + 1)
     truncated = len(data) > limit
@@ -123,7 +121,7 @@ def list_dir(rel: str = "", project_id: str | int | None = None) -> dict:
     if not target.is_dir():
         raise PathNotFound(rel)
 
-    limit = int(settings.CONSOLE_TREE_LIMIT)
+    limit = config.runtime_limit().tree_limit
     try:
         with os.scandir(target) as scanner:
             entries = list(scanner)

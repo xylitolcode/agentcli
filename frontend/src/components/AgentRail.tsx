@@ -55,15 +55,16 @@ export function AgentRail({
         const open = openProfiles.includes(name)
         const active = activeProfile === name
         const disabled = !profile || (full && !open)
+        const display = profile?.label || name
         const title = !profile
           ? `${name} 未安装（PATH 里找不到）`
           : active
-            ? `${name} · 当前面板`
+            ? `${display} · 当前面板`
             : open
-              ? `${name} · 已开，点一下切过去`
+              ? `${display} · 已开，点一下切过去`
               : full
                 ? `面板已满（上限 ${maxPanels}），先关掉几个`
-                : `${name} · 点一下开会话，进 TUI 再聊`
+                : `${display} · 点一下开会话，进 TUI 再聊`
 
         return (
           <button

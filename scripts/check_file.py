@@ -14,9 +14,9 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "agentcli.settings")
 django.setup()
 
-from django.test import Client, override_settings  # noqa: E402
+from django.test import Client  # noqa: E402
 
-from console import files, projects  # noqa: E402
+from console import config, files, projects  # noqa: E402
 
 client = Client(HTTP_HOST="127.0.0.1")
 project = next((p for p in projects.list_projects() if p["exists"]), None)
@@ -54,8 +54,16 @@ body = resp.json()
 check("二进制标记", resp.status_code == 200 and body["binary"] and not body["content"],
       f"binary={body.get('binary')}")
 
-with override_settings(CONSOLE_FILE_LIMIT=1024):
+# 限额走数据库：临时改小，测完恢复原值
+limit_row = config.runtime_limit()
+original_limit = limit_row.file_limit
+try:
+    limit_row.file_limit = 1024
+    limit_row.save()
     body = files.read_text("README.md", pid)
+finally:
+    limit_row.file_limit = original_limit
+    limit_row.save()
 check("大文件截断", body["truncated"] and len(body["content"]) <= 1024 and body["size"] > 1024,
       f"{body['size']}B -> {len(body['content'])}B")
 
