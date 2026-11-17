@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 
 import App from './App'
 import type { Bootstrap } from './types'
+import '@xterm/xterm/css/xterm.css'
 import './styles.css'
 
 /** Django 用 json_script 注入，读它比自己拼字符串安全（不会撞上 </script>）。 */
