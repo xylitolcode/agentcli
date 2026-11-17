@@ -1,0 +1,276 @@
+/*
+ * Django admin 的 HUD 皮肤 —— 与主界面的 stage+rail 共用同一套 token。
+ *
+ * 只覆盖 Django 自带的 CSS 变量（base.css / dark_mode.css 里那套 --primary、
+ * --body-bg、--border-color…）再补几条形状规则。不重写模板结构，不引第三方主题：
+ * admin 的 DOM 是 Django 的，能改的是它的语汇。
+ *
+ * 固定深色：不管是系统暗色，还是右上角切换器点了「亮」，都用这一套 —— 配置台
+ * 和舞台必须长一个样子。所以变量在 :root 与 html[data-theme=…] 上各写一遍，
+ * 压住 dark_mode.css 里两套声明（后加载 + 同/高特异性）。
+ */
+
+html[data-theme="light"],
+html[data-theme="dark"],
+:root {
+  --primary: #070c12;
+  --secondary: #0b1219;
+  --accent: #6ef3c8;
+  --primary-fg: #dfe9f0;
+
+  --body-fg: #dfe9f0;
+  --body-bg: #04070b;
+  --body-quiet-color: #8ba0b2;
+  --body-medium-color: #a9bccb;
+  --body-loud-color: #ffffff;
+
+  --header-color: #8ba0b2;
+  --header-branding-color: #6ef3c8;
+  /* 比 body 亮一档，靠这一档分出页头；再靠下面那条细线收口 */
+  --header-bg: #070c12;
+  --header-link-color: #dfe9f0;
+
+  --breadcrumbs-fg: #4f6274;
+  --breadcrumbs-link-fg: #6ef3c8;
+  --breadcrumbs-bg: #070c12;
+
+  --link-fg: #6ef3c8;
+  --link-hover-color: #9ffbe0;
+  --link-selected-fg: #6ef3c8;
+
+  --hairline-color: rgba(110, 243, 200, 0.13);
+  --border-color: rgba(110, 243, 200, 0.2);
+
+  --error-fg: #ff5f57;
+
+  --message-debug-bg: rgba(110, 243, 200, 0.06);
+  --message-info-bg: rgba(110, 243, 200, 0.09);
+  --message-success-bg: rgba(110, 243, 200, 0.12);
+  --message-warning-bg: rgba(255, 180, 84, 0.14);
+  --message-error-bg: rgba(255, 95, 87, 0.14);
+
+  --darkened-bg: #070c12;
+  --selected-bg: rgba(110, 243, 200, 0.1);
+  --selected-row: rgba(110, 243, 200, 0.07);
+
+  --button-fg: #dfe9f0;
+  --button-bg: #0b1219;
+  --button-hover-bg: rgba(110, 243, 200, 0.14);
+  --default-button-bg: #6ef3c8;
+  --default-button-hover-bg: #9ffbe0;
+  --close-button-bg: #0b1219;
+  --close-button-hover-bg: rgba(110, 243, 200, 0.16);
+  --delete-button-bg: #ff5f57;
+  --delete-button-hover-bg: #ff8b86;
+
+  --object-tools-fg: #6ef3c8;
+  --object-tools-bg: rgba(110, 243, 200, 0.1);
+  --object-tools-hover-bg: rgba(110, 243, 200, 0.2);
+
+  /* 配置台是工程师的地盘，等宽为主；中文回退到 Noto Sans SC */
+  --font-family-primary:
+    "Cascadia Mono", "JetBrains Mono", ui-monospace, "Noto Sans SC",
+    "Segoe UI", system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-family-monospace:
+    "Cascadia Mono", "JetBrains Mono", ui-monospace, "Noto Sans SC", monospace;
+
+  color-scheme: dark;
+}
+
+/* ── 形状：零圆角、细线、无阴影卡 ─────────────────────────── */
+
+.button,
+input[type="submit"],
+input[type="button"],
+.deletelink,
+select,
+textarea,
+input[type="text"],
+input[type="password"],
+input[type="number"],
+input[type="email"],
+input[type="url"],
+.module,
+.inline-group,
+fieldset,
+.collapse,
+#changelist-filter,
+#toolbar,
+.selector,
+.selector-chosen h2,
+.selector-available h2,
+.calendar,
+.timelist,
+.messagelist li,
+.paginator a,
+.paginator a:link,
+.object-tools a,
+.object-tools a:link,
+#header,
+#branding h1,
+.login #container,
+.login #header,
+.theme-toggle {
+  border-radius: 0 !important;
+}
+
+/* ── 页头：品牌 + 细分隔线，像舞台顶条 ───────────────────── */
+
+#header {
+  border-bottom: 1px solid var(--hairline-color);
+  padding: 10px 24px;
+}
+
+#branding h1,
+#branding h1 a:link,
+#branding h1 a:visited {
+  color: var(--header-branding-color);
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+
+.hud-brand-sub {
+  margin-left: 8px;
+  color: var(--body-quiet-color);
+  font-size: 0.7rem;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+#user-tools {
+  color: var(--body-quiet-color);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+#user-tools a {
+  border-bottom: 1px solid var(--hairline-color);
+  text-decoration: none;
+}
+
+/* ── 分组与表头：大写 + 字距，读起来像面板标签 ───────────── */
+
+.module h2,
+.module caption,
+.inline-group h2,
+#changelist-filter h2 {
+  background: transparent;
+  border-bottom: 1px solid var(--hairline-color);
+  color: var(--body-quiet-color);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  padding: 7px 10px;
+  text-transform: uppercase;
+}
+
+.module {
+  border: 1px solid var(--hairline-color);
+  background: var(--secondary);
+}
+
+#content h1,
+#content h2 {
+  letter-spacing: 0.02em;
+}
+
+#changelist table thead th {
+  background: transparent;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--body-quiet-color);
+  font-size: 0.64rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* 选中行／悬停行：一层磷光，不是换底色 */
+#result_list tbody tr:hover,
+#changelist tbody tr:hover {
+  background: rgba(110, 243, 200, 0.05);
+}
+
+/* ── 控件：暗底、细边，聚焦时磷光描边 ───────────────────── */
+
+input,
+textarea,
+select,
+.vTextField {
+  background: var(--primary);
+  border: 1px solid var(--border-color);
+  color: var(--body-fg);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(110, 243, 200, 0.35);
+}
+
+/* 主按钮（保存）：磷光实底 + 深色字，全页唯一的「亮」 */
+input[type="submit"].default,
+.submit-row input.default,
+.button.default {
+  background: var(--default-button-bg);
+  color: #04070b;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+input[type="submit"].default:hover,
+.submit-row input.default:hover {
+  background: var(--default-button-hover-bg);
+}
+
+/* ── 杂项：滚动条、选区、链接下划线 ─────────────────────── */
+
+* {
+  scrollbar-color: #1b2731 #04070b;
+  scrollbar-width: thin;
+}
+
+::selection {
+  background: rgba(110, 243, 200, 0.25);
+  color: #ffffff;
+}
+
+a:link,
+a:visited {
+  text-decoration: none;
+}
+
+/* 面包屑：路径感，不要色块 */
+.breadcrumbs {
+  border-bottom: 1px solid var(--hairline-color);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  padding: 6px 24px;
+}
+
+/* 侧边导航（默认收起，这里只把选中态换成磷光） */
+#nav-sidebar .current-model {
+  background: rgba(110, 243, 200, 0.08);
+}
+
+/* 登录页：一块暗色操作面板，居中，细边 */
+.login #container {
+  background: var(--secondary);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 0 60px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.login #header {
+  border-bottom: 1px solid var(--hairline-color);
+  padding: 10px 16px;
+}
+
+.login .form-row label {
+  color: var(--body-quiet-color);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}

@@ -62,7 +62,9 @@ ROOT_URLCONF = 'agentcli.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        # 项目级模板优先于各 app：改 admin 皮肤只 override 一个 base_site.html，
+        # 不用把 console 塞到 INSTALLED_APPS 的 admin 前面。
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
