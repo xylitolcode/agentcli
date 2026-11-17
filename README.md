@@ -269,6 +269,8 @@ agent 判断该分工、或用户明确要求时调用它；服务端把任务�
   （文件树标色，`/api/hook/`）；qwen hooks 未接，codex 无等价钩子
 - [x] **外包实测**：claude / codex / qwen 都能在原生 TUI 里主动调 `delegate_task`，
   回执进入各自上下文；codex 首次有信任页与一次原生工具审批
+- [ ] **只读代码 / Git 视图（P5）**：目录树点文件只看不写，带语法高亮；再加
+  `git status` / 提交历史 / diff 面板。控制台不做编辑、不代做 add/commit/reset。
 - [ ] 鉴权：Django auth 接上，会话按用户隔离（现在是单用户假设）
 - [ ] 审计日志：谁在什么时候、用哪个 agent、动了什么
 - [ ] **agent 独立配置管理页**：反代地址、鉴权/key、模型选择、权限放行档位、

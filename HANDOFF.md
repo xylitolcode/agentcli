@@ -421,3 +421,16 @@ CONSOLE_ENABLE_STUB=1 setsid .venv/bin/uvicorn agentcli.asgi:application --host 
 - 鉴权文件：codex `~/.codex/auth.json`（键 `OPENAI_API_KEY`）；claude
   `~/.claude/settings.json` env 段；qwen `~/.qwen/settings.json`。
 - 同级总目录 `~/projects/`：agentcli(id 1)、myos(id 2)、new-api(id 3)。
+
+## 10. 后续计划：代码与 Git 可视化（只读）
+
+控制台不做文件编辑：改文件由 agent/CLI 与 git 负责，控制台只把结果可视化。
+
+- **P5a 只读文本查看器**：目录树点文件 → 只读文本 + 语法高亮（CodeMirror 只读模式
+  或 Shiki 一类展示组件）；大文件截断、二进制提示；无保存/新建/删除。
+- **P5b Git 状态**：面板显示当前分支、`git status`、最近提交；文件树标色优先取
+  git status，交互态没有 hooks 的 qwen/codex 也能看到改动。
+- **P5c Diff**：点 commit 看该提交 diff，点工作区文件看未提交 diff；增删行着色、
+  行号、折叠上下文，可复制但不“应用”。
+- **P5d 联动**：`file_events` 只作“刚动过”提示，最终事实以 git 为准。
+- 边界：全部只读，不提供 add/commit/reset/checkout；版本控制决策仍归用户/agent。
