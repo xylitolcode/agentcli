@@ -44,6 +44,9 @@ class Adapter:
     label: str = ""
     # 是否支持原生交互形态。真实 agent 都是 True；测试桩之类只会 headless。
     interactive: bool = True
+    # 是否支持把 CLI 自己的会话 id 固定下来并在重开时续上下文（claude 有
+    # --session-id / --resume；qwen/codex 的交互态暂未接）。
+    resumable: bool = False
 
     # 工具名 -> 文件动作归类。解析器按这里映射「读过 / 改过 / 执行过」。
     # 同时兼容 Claude Code 的 PascalCase 与 Qwen Code 的 snake_case。
@@ -71,6 +74,8 @@ class Adapter:
         *,
         mode: str = "headless",
         sid: str = "",
+        agent_sid: str = "",
+        resume: str = "",
     ) -> list[str]:
         """启动参数。
 
@@ -82,7 +87,9 @@ class Adapter:
           stdout 是 JSONL，结构化事件只在这个模式下有保证。
 
         ``base_argv`` 是 settings 里登记的可执行路径；``sid`` 是控制台会话 id，
-        交互态用它给 MCP server 传递「替谁说活」。
+        交互态用它给 MCP server 传递「替谁说活」。``agent_sid`` 是给 CLI 预分配的
+        自己的会话 id（只有 ``resumable`` 的适配器用）；``resume`` 则要求 CLI
+        续上一个已有会话。
         """
         return list(base_argv)
 

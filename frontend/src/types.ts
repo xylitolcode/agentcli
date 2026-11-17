@@ -70,7 +70,7 @@ export type SessionInfo = {
 /* ---------------- WebSocket 文本帧（控制消息） ---------------- */
 
 export type ControlMessage =
-  | { type: 'session'; sid: string; mode?: string; outsourcing?: boolean }
+  | { type: 'session'; sid: string; mode?: string; resumable?: boolean; outsourcing?: boolean }
   | { type: 'session-eof'; pending?: number }
   | { type: 'session-missing' }
   | { type: 'file-events'; files: Record<string, FileMark> }

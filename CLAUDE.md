@@ -53,10 +53,14 @@ python manage.py test console.tests.<类>.<方法>
   `{profile,sid,prompt}` + `activeSid`（200ms 防抖），刷新时 URL 的 sid 命中布局就
   整体还原、没命中按分享链接单开；`关闭全部` 清布局；子面板不持久化。
 - **「重开」按钮语义**：`status==='offline'` 回原会话（Shift+点击新开）；主会话 `ended`
-  视为「用同一任务再跑一次」——`fresh = shiftKey || status==='ended'`，先
-  `term.reset()` 清画面再重连。委派子会话 `ended` 时改走 `rerun`：`usePty` 在 query 里
-  带 `rerun=1`（sid 不变、不落状态），服务端 `delegation.rerun(child_sid)` 取该槽最近
-  一条委派任务原样再派一轮（`dispatch(..., force=True)`，失败回 `rerun-error`）。
+  若为交互 agent 且 `resumable`，走**续会话**：`SessionPanel` 传 `resume: true`，
+  `usePty` 先记旧控制台 sid、清本地 sid，再以 `resume_from=<旧 sid>` 新连接
+  （不再重发旧 prompt，否则同一句话跑两遍）；服务端查
+  `sessions.recall_agent()` 后用 `--resume` 起同一段上下文。Shift+点击仍强制新开。
+  非 resumable 的 headless 主会话 `ended` 仍视为「用同一任务再跑一次」。
+  委派子会话 `ended` 时改走 `rerun`：`usePty` 在 query 里带 `rerun=1`（sid 不变、
+  不落状态），服务端 `delegation.rerun(child_sid)` 取该槽最近一条委派任务原样再派
+  一轮（`dispatch(..., force=True)`，失败回 `rerun-error`）。
   `usePty` 在 `close 1000` 时**保留 sid**，房间条才能认出已结束面板；重连前先
   `term.reset()`，避免旧内容和回放重叠。
 - **项目体系**：`console/models.py:Project` 维护台账（name/path/agent/enabled），
@@ -154,11 +158,19 @@ python manage.py test console.tests.<类>.<方法>
   `--allowedTools` 预放行 `mcp__agentcli__delegate_task`，避免卡在外包工具的权限弹窗
   （其它工具仍原生确认）。codex 无 allowedTools 等价开关，走原生 MCP 审批。
   `TOKEN`/`BASE_URL` 是进程内单例，多 worker 会失效；只适合本机单用户。
+- **身份映射与续会话（M2）**：控制台 sid 是主身份，`Runtime.agent_sid` 存 CLI 自己
+  的 session id，`Runtime.resumable` 标记能否续。新交互会话由 `_spawn` 生成 UUID →
+  claude `--session-id`；重开查 `sessions.recall_agent(旧控制台 sid)` 后 `--resume`，
+  两个参数互斥。身份表在会话回收后仍保留（上限 512 条）。qwen/codex 当前
+  `resumable=False`。**SessionStart hook 会回报 CLI 权威 session_id**，`/api/hook/`
+  收到后校正 `runtime.agent_sid` 与身份表，避免交互 TUI 不采纳 `--session-id` 时
+  续错会话。外包默认：交互主会话开、headless 关、子槽继承父；前端始终传 `1/0`。
 - **hooks（claude 交互态）**：`bridge.hook_settings(sid)` 用 `--settings` 内联 JSON
-  注册 `PostToolUse`，命令跑 `scripts/hook_event.py`，把 `tool_name/tool_input`
-  POST 到 `/api/hook/`（同样校验进程内 token）。端点只记文件访问并向观察者推
-  `agent-event`，不动权限、不阻塞会话；hook 脚本任何失败都静默退出。qwen 尚未接
-  hooks，codex 无等价钩子——这两者在交互态仍没有目录树标色。
+  注册 `SessionStart`（回报 session_id）与 `PostToolUse`，命令跑
+  `scripts/hook_event.py`，把 `hook_event_name/session_id/tool_name/tool_input`
+  POST 到 `/api/hook/`（同样校验进程内 token）。端点只校正身份、记文件访问并向
+  观察者推 `agent-event`，不动权限、不阻塞会话；hook 脚本任何失败都静默退出。
+  qwen 尚未接 hooks，codex 无等价钩子——这两者在交互态仍没有目录树标色。
 - **profile 白名单**：`CONSOLE_PROFILES` 表决定能拉什么，URL 上是
   `/ws/terminal/?profile=bash&project=3`。只认表里的键，query 不会变成任意命令。
   `available_profiles()` 会探测 PATH（含 `~/.local/bin` 兜底）并回 `interactive`，

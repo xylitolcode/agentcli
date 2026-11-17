@@ -22,6 +22,9 @@ class ClaudeAdapter(Adapter):
     name = "claude"
     kind = "agent"
     label = "Claude Code"
+    # claude 支持 --session-id（预分配）与 --resume（续上下文），交互态可做到
+    # 「控制台 sid 不变、CLI 会话跟着回来」。
+    resumable = True
 
     def build_argv(
         self,
@@ -30,6 +33,8 @@ class ClaudeAdapter(Adapter):
         *,
         mode: str = "headless",
         sid: str = "",
+        agent_sid: str = "",
+        resume: str = "",
     ) -> list[str]:
         if mode == "interactive":
             # 原生 TUI：多轮、上下文、权限确认都由 claude 自己管。只补一个
@@ -38,6 +43,12 @@ class ClaudeAdapter(Adapter):
             if sid:
                 from .. import bridge
                 argv += bridge.claude_flags(sid)
+            if resume:
+                # 续上一轮：上下文、历史、工具结果都从 claude 自己的会话里回来
+                argv += ["--resume", resume]
+            elif agent_sid:
+                # 新会话：把 CLI 的 session id 固定成我们记录的那个，重开时可 --resume
+                argv += ["--session-id", agent_sid]
             if prompt:
                 argv.append(prompt)
             return argv

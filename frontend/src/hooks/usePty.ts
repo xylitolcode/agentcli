@@ -32,7 +32,7 @@ export type PtyApi = {
   sendControl: (payload: Record<string, unknown>) => void
   resize: (cols: number, rows: number) => void
   /** fresh=true 丢弃旧会话另起一个；rerun=true 让服务端在原槽里重跑上一轮任务 */
-  reconnect: (options?: { fresh?: boolean; rerun?: boolean }) => void
+  reconnect: (options?: { fresh?: boolean; rerun?: boolean; resume?: boolean }) => void
 }
 
 const RETRY_DELAY = 2500
@@ -79,9 +79,10 @@ export function usePty({
     handlersRef.current.onStatus?.(next)
   }
 
-  const openSocket = useCallback((options?: { fresh?: boolean; rerun?: boolean }) => {
+  const openSocket = useCallback((options?: { fresh?: boolean; rerun?: boolean; resume?: boolean }) => {
     const fresh = options?.fresh ?? false
     const rerun = options?.rerun ?? false
+    const resume = options?.resume ?? false
     const previous = socketRef.current
     if (previous) {
       // 摘掉 onclose，否则旧连接的关闭会触发一次自动重连，和新会话打架
@@ -91,6 +92,8 @@ export function usePty({
     }
     window.clearTimeout(retryRef.current)
 
+    // 续上下文要在清 sid 之前记下旧控制台 id；服务端凭它找 CLI 自己的会话
+    const resumeFrom = resume ? sidRef.current : ''
     if (fresh) {
       sidRef.current = ''
       setSid(null)
@@ -104,9 +107,12 @@ export function usePty({
     if (sidRef.current) params.set('sid', sidRef.current)
     // 带 sid 时服务端走「接回旧会话」，prompt 不会被用到；但若那个会话已过期，
     // 服务端会用它重建一个新会话 —— 所以这里始终带上，刷新后不至于空会话报错。
-    if (promptRef.current) params.set('prompt', promptRef.current)
-    // 外包开关赶在进程第一行输出前就位；重连时也再带一次，保持幂等
-    if (outsourcingRef.current) params.set('outsourcing', '1')
+    // 续上下文时不能再把旧任务发一遍，否则同一句话会被执行两次。
+    if (promptRef.current && !resume) params.set('prompt', promptRef.current)
+    // 外包开关始终显式带 1/0：后端对交互会话默认开，只带 1 的话用户关不掉
+    params.set('outsourcing', outsourcingRef.current ? '1' : '0')
+    // 重开续上下文：旧控制台 sid 交给服务端查它记录的 CLI session id
+    if (resumeFrom) params.set('resume_from', resumeFrom)
     // 只在这一条连接上请求重跑（与会话 sid 一起用），不改变本地状态
     if (rerun) params.set('rerun', '1')
 

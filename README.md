@@ -161,8 +161,9 @@ agent 判断该分工、或用户明确要求时调用它；服务端把任务�
 - 每条 WS 连接生成进程内 token 与真实端口，`console/bridge.py` 拼成各 CLI 的
   `--mcp-config` / `-c mcp_servers...` 参数，并附一段中文系统提示告诉 agent
   工具的存在与使用边界。
-- 控制台必须有「外包模式」开关（`outsourcing`）；未开启时调用返回明确失败原因，
-  不会静默派活。
+- 控制台有「外包模式」开关（`outsourcing`）：**原生交互主会话默认开，headless
+  一次性任务默认关，子槽继承父会话**；用户在面板上关掉后，前端每次连接都显式传
+  `0`，不会被默认值翻回来。未开启时调用返回明确失败原因，不会静默派活。
 - claude / qwen 预放行 `mcp__agentcli__delegate_task`，避免卡在权限弹窗；其它工具
   仍走原生权限确认。codex 走它自己的 MCP 审批。
 
@@ -183,10 +184,12 @@ agent 判断该分工、或用户明确要求时调用它；服务端把任务�
   `agentcli.panels.${host}.${projectId}`（`{profile,sid,prompt}` 数组 + `activeSid`，
   只含有 sid 的主面板，200ms 防抖）。刷新时 URL 的 sid 命中布局就整体还原，没命中
   就按分享链接单开一个；「关闭全部」同时清布局。子会话面板不持久化。
-- **「重开」**：离线面板回原会话（Shift+点击新开）；已 `ended` 的主面板视为「再开
-  一代」，先擦画面再 `fresh` 重连——交互 agent 可空任务直接重开进 TUI，headless
-  agent 必须还有任务。已 `ended` 的委派子会话则带 `rerun=1` 接回同一张子槽，用上一轮
-  委派任务原地再跑（sid / 父子 / 台账身份不变）。
+- **「重开」**：离线面板回原会话（Shift+点击新开）；已 `ended` 的交互主面板走
+  **续会话**，先擦画面，再带 `resume_from=<旧控制台 sid>` 新建连接（不重发旧任务），
+  服务端查身份映射后用 `--resume` 回到 CLI 自己的上下文（claude 已通；qwen/codex
+  暂不可续）。非 resumable 的 headless 主面板仍视为「再开一代」，必须还有任务。
+  已 `ended` 的委派子会话则带 `rerun=1` 接回同一张子槽，用上一轮委派任务原地再跑
+  （sid / 父子 / 台账身份不变）。
 - 断连只摘观察者，不杀进程；空闲会话超过 `IDLE_TTL`（默认 300s）由后台扫描
   兜底回收；进程退出后会话进入 `dead`，留 `DEAD_TTL`（默认 30s）供重连回看
   最终输出，随后摘除。名下挂着常驻子槽的父会话留 5 分钟
@@ -255,13 +258,15 @@ agent 判断该分工、或用户明确要求时调用它；服务端把任务�
   TUI，headless agent 写任务点「派任务」，任务进 argv 启动
 - [x] **主面板原生交互**：claude / codex / qwen 直接进各自 TUI，多轮、上下文、权限
   弹窗、slash 命令都归 CLI；控制台不解析 ANSI，只搬字节
+- [x] **身份映射 / 续会话**：控制台 sid 为主，CLI session id 附属；claude 重开走
+  `--resume` 续上下文，qwen/codex 待接
 - [x] **外包 MCP 桥**：交互 agent 可主动调 `delegate_task` 把活派给另一个 agent，
   回执作为 tool result 回到它自己的上下文
 - [ ] 回执进父会话上下文：已由 MCP 解决（旧的一次性路径不再需要）
 - [ ] **`Task` 双跑**：headless 路径仍有「CLI 内部子代理 vs 底座外部子槽」重复风险；
   交互态已改走 MCP，不再自动解析 `Task`
-- [ ] 交互态 hooks：claude 已用 `PostToolUse` 接回文件树标色（`/api/hook/`）；
-  qwen hooks 未接，codex 无等价钩子
+- [ ] 交互态 hooks：claude 已接 `SessionStart`（校正 CLI 会话 id）与 `PostToolUse`
+  （文件树标色，`/api/hook/`）；qwen hooks 未接，codex 无等价钩子
 - [x] **外包实测**：claude / codex / qwen 都能在原生 TUI 里主动调 `delegate_task`，
   回执进入各自上下文；codex 首次有信任页与一次原生工具审批
 - [ ] 鉴权：Django auth 接上，会话按用户隔离（现在是单用户假设）

@@ -25,6 +25,8 @@ class StubAdapter(Adapter):
         *,
         mode: str = "headless",
         sid: str = "",
+        agent_sid: str = "",
+        resume: str = "",
     ) -> list[str]:
         argv = list(base_argv)
         if prompt:

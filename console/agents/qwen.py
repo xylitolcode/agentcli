@@ -23,6 +23,8 @@ class QwenAdapter(Adapter):
         *,
         mode: str = "headless",
         sid: str = "",
+        agent_sid: str = "",
+        resume: str = "",
     ) -> list[str]:
         if mode == "interactive":
             # 原生 TUI；带初始任务要用 -i，位置参数是 one-shot。

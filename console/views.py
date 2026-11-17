@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -12,6 +13,8 @@ from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
 from . import agent, bridge, delegation, files, projects, sessions, terminal, vite
+
+logger = logging.getLogger(__name__)
 
 
 @ensure_csrf_cookie
@@ -240,9 +243,19 @@ async def hook_api(request):
         return JsonResponse({"ok": False, "error": "会话已回收"}, status=404)
 
     field, action = _HOOK_TOOLS.get(tool, ("", ""))
+    cli_sid = str(payload.get("session_id") or "")
+    if cli_sid:
+        # SessionStart 报回来的是 CLI 自己的权威 session id（交互 TUI 可能不采纳
+        # --session-id）；控制台 sid 不变，只把附属身份校正过来。
+        parent.runtime.agent_sid = cli_sid
+        parent.runtime.resumable = True
+        sessions.remember_agent(sid, parent.runtime.profile, cli_sid)
+        logger.info("hook 身份 %s -> %s (%s)", sid, cli_sid,
+                    payload.get("hook_event_name") or "?")
+
     path = str(tool_input.get(field) or "") if field else ""
     if not path:
-        return JsonResponse({"ok": True, "ignored": tool})
+        return JsonResponse({"ok": True, "ignored": tool, "session_id": cli_sid})
 
     rel = terminal._rel_to_cwd(path, parent.runtime.cwd)
     parent.runtime.record_file(rel, action)

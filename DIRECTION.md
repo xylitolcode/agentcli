@@ -124,7 +124,7 @@
 2. 「外包模式」是系统主打功能：**由 agent 自己判断、或被用户告知要分工时主动调用**。实现通道不限，MCP 或技能均可，能实现即可。
 3. 结构化事件属于「尽量提供」的能力，**不得为了好拿事件而改变 agent 的体验方式**。
 4. 交互态第一阶段接受降级：文件树标色、房间条 busy、委派台账自动解析暂缺（hooks 未接），不视为 bug。
-5. 身份主从（控制台 sid vs agent session id）仍未定，留到 M2。
+5. 身份主从定为：**控制台 sid 为主身份，CLI session id 作附属**；重开交互会话时用附属 id `--resume` 续上下文（claude 已落地，qwen/codex 待接）。
 6. C（常驻 stream-json）不作为主形态保留；若未来需要「结构化多轮」，作为可选模式再加。
 
 ### 已落地（M1 + M3a）
@@ -143,11 +143,13 @@
 
 ## 7. 尚未做（按 B 路线继续）
 
-1. hooks：claude PostToolUse 已接（`scripts/hook_event.py` + `/api/hook/`，交互态
-   文件树重新标蓝/标黄）；qwen hooks 尚未接，codex 无等价钩子。
+1. hooks：claude `SessionStart` + `PostToolUse` 已接（`scripts/hook_event.py` +
+   `/api/hook/`，用于校正 CLI 会话 id 并给文件树标蓝/标黄）；qwen hooks 尚未接，
+   codex 无等价钩子。
 2. codex / qwen 原生 TUI 内的 `delegate_task` 已实测通过（codex 首次有信任页与
    一次原生审批，qwen 直接放行）。
-3. M2 身份映射：`--resume` / `exec resume` 与控制台 sid 的显式绑定。
-4. 外包开关的 UX：交互态系统提示已告知工具存在，开关关闭时调用会拿到明确失败原因；
-   是否改为「按会话默认开」待定。
+3. M2 身份续会话：claude 已打通（`--session-id` / `--resume` + 控制台 sid 映射）；
+   qwen/codex 的 resume 参数待逐个验证后接。
+4. 外包开关已改为「交互会话默认开、headless 默认关、子槽继承父」，前端始终显式
+   传 `1/0`；仍需在真机上确认用户关掉后重连不会被默认值翻回来。
 5. token / BASE_URL 仍是进程内单例，多 worker 失效；P4 鉴权与多用户隔离未做。

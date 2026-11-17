@@ -133,7 +133,7 @@ export default function App({ bootstrap }: { bootstrap: Bootstrap }) {
   const query = useMemo(readQuery, [])
 
   const [projectId, setProjectId] = useState(query.project)
-  const [outsourcing, setOutsourcing] = useState(false)
+  const [outsourcing, setOutsourcing] = useState(true)
   const [fileMarks, setFileMarks] = useState<Record<string, FileMark>>({})
 
   const [treeWidth, setTreeWidth] = useState(DEFAULT_TREE)

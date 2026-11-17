@@ -60,6 +60,10 @@ class Runtime:
     kind: str = "shell"
     # interactive：原生 TUI（多轮、上下文归 CLI）；headless：-p/exec 一次性任务
     mode: str = "interactive"
+    # CLI 自己的会话 id（只有 resumable 的适配器会填）：控制台 sid 仍是主身份，
+    # 这个字段用来在「重开」时 --resume 回同一段上下文。
+    agent_sid: str = ""
+    resumable: bool = False
     cwd: str = ""
     # 环形缓冲：最近一段输出，供重连回放
     buffer: collections.deque[bytes] = field(default_factory=lambda: collections.deque(maxlen=REPLAY_LIMIT))
@@ -283,6 +287,24 @@ class _Session:
 
 # 进程内单例。terminal 层和 ASGI lifespan 都从这里取。
 registry = SessionRegistry()
+
+# 控制台 sid -> (profile, CLI 自己的 session id)。会话被回收后仍保留一小段，
+# 供「重开」按旧 sid 找回 CLI 会话续上下文；条数有上限，不无限增长。
+_AGENT_IDS: dict[str, tuple[str, str]] = {}
+_AGENT_IDS_LIMIT = 512
+
+
+def remember_agent(sid: str, profile: str, agent_sid: str) -> None:
+    if not sid or not agent_sid:
+        return
+    _AGENT_IDS.pop(sid, None)
+    _AGENT_IDS[sid] = (profile, agent_sid)
+    while len(_AGENT_IDS) > _AGENT_IDS_LIMIT:
+        _AGENT_IDS.pop(next(iter(_AGENT_IDS)), None)
+
+
+def recall_agent(sid: str) -> tuple[str, str] | None:
+    return _AGENT_IDS.get(sid)
 
 
 def pid_of(session: _Session) -> int:

@@ -65,10 +65,14 @@ def _hook_script() -> str:
 
 
 def hook_settings(sid: str) -> str:
-    """claude 的 ``--settings`` 内联 JSON：PostToolUse 旁路上报文件访问。
+    """claude 的 ``--settings`` 内联 JSON：旁路上报会话身份与文件访问。
 
     交互 TUI 的 stdout 不是 JSONL，目录树拿不到标色。hook 在工具调用后跑一个
     极轻的本机 POST，只补事件，不影响 TUI 的渲染与权限流程。
+
+    ``SessionStart`` 还负责把 CLI **真实的** session id 报回来：实测交互 TUI
+    有时不采纳 ``--session-id``，只有 hook 输入里的 ``session_id`` 才是权威值，
+    重开时 ``--resume`` 用它才能续上同一段上下文。
     """
     command = (
         f"'{_python()}' '{_hook_script()}' "
@@ -76,6 +80,9 @@ def hook_settings(sid: str) -> str:
     )
     return json.dumps({
         "hooks": {
+            "SessionStart": [{
+                "hooks": [{"type": "command", "command": command, "timeout": 3}],
+            }],
             "PostToolUse": [{
                 "matcher": "Read|Write|Edit|MultiEdit|NotebookEdit",
                 "hooks": [{"type": "command", "command": command, "timeout": 5}],

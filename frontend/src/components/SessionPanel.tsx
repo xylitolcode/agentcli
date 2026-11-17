@@ -12,7 +12,7 @@ export type SessionHandle = {
   /** 同步外包模式开关到服务端 */
   setOutsourcing: (on: boolean) => void
   focus: () => void
-  reconnect: (options?: { fresh?: boolean; rerun?: boolean }) => void
+  reconnect: (options?: { fresh?: boolean; rerun?: boolean; resume?: boolean }) => void
 }
 
 type Props = {
@@ -286,15 +286,20 @@ export function SessionPanel({
               onClick={(event) => {
                 const rerun = status === 'ended' && rerunOnEnded
                 const fresh = event.shiftKey || (status === 'ended' && !rerun)
+                // 交互态 agent 正常重开 = 续 CLI 自己的会话；Shift 强制新开
+                const resume =
+                  status === 'ended' && !event.shiftKey && !rerun && pty.mode === 'interactive'
                 // 另起会话先把旧画面擦掉，不然新旧输出会叠在一起
                 if (fresh) termRef.current?.reset()
-                reconnect(rerun ? { rerun: true } : { fresh })
+                reconnect(rerun ? { rerun: true } : { fresh, resume })
               }}
               title={
                 status === 'ended'
                   ? rerunOnEnded
                     ? '重开：在原来的子会话槽里重跑上一轮任务'
-                    : '重开：用同一任务再跑一次'
+                    : pty.mode === 'interactive'
+                      ? '重开：续上同一个 CLI 会话（Shift+点击：新开会话）'
+                      : '重开：用同一任务再跑一次'
                   : '重连回原会话（Shift+点击：新开会话）'
               }
               className="rounded-[5px] border border-transparent px-1 py-px text-[10.5px] text-dim hover:border-line hover:bg-line-soft hover:text-fg"

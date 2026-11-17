@@ -178,7 +178,9 @@ scripts/
   面板是观察窗，不持久化。
 - **「重开」语义**：离线时回原会话（Shift+点击新开）；主会话已 `ended` 则视为
   「再开一代」——先 `term.reset()` 擦画面再 `fresh` 重连，避免只回放旧缓冲。
-  **交互 agent 可空任务直接重开进 TUI**；headless agent 必须还有任务才能重开。
+  **交互 agent 正常重开 = 续 CLI 自己的会话**（带 `resume_from=<旧控制台 sid>`，
+  服务端查身份表后用 `--resume`；Shift+点击才是全新会话）；headless agent 必须
+  还有任务才能重开。续上下文时不再重发面板里的旧 prompt，否则同一句话会跑两遍。
   **委派子会话**已 `ended` 时改为带 `rerun=1` 接回同一张子槽：服务端
   `delegation.rerun()` 找该槽最近一条委派任务，用同一 prompt 再派一轮（sid / 父子
   / 槽身份不变，只换一代进程）。`usePty` 在 `close 1000` 时保留 sid，房间条才能
@@ -227,6 +229,31 @@ scripts/
 - **三 agent 外包实测**：claude / codex / qwen 均成功调用 `delegate_task` 到 stub 子槽，
   回执分别 `leaf-ok:mcp-ok` / `leaf-ok:codex-mcp` / `leaf-ok:qwen-mcp`；codex 首次
   需过原生信任页并对 MCP 工具做一次原生审批，qwen 因预放行直接执行。
+
+### 3.7 M2 身份映射 + 续会话 + 外包默认（claude 已接）
+
+- **身份主从**：控制台 sid 仍是主身份；`Runtime.agent_sid` 存 CLI 自己的 session id，
+  `Runtime.resumable` 标明该会话能否续。`sessions.remember_agent/recall_agent` 维护
+  `控制台 sid -> (profile, CLI sid)`，会话被回收后仍保留（上限 512 条），供重开查。
+- **claude 参数**：新交互会话预分配 UUID → `--session-id <uuid>`；重开时
+  `--resume <uuid>`（两者互斥，续会话不再传 `--session-id`）。qwen/codex 的
+  `resumable=False`，参数照旧，暂不承诺续上下文。
+- **SessionStart hook 校正身份**：实测交互 TUI 的权威 session id 以 hook 输入里的
+  `session_id` 为准（`--session-id` 之外仍保留作为首选）。`hook_settings` 同时注册
+  `SessionStart` 与 `PostToolUse`；`hook_event.py` 把 `hook_event_name/session_id`
+  一并 POST，`/api/hook/` 收到后更新 `runtime.agent_sid` 并重写身份表。hook 仍然只
+  是旁路，失败不影响会话。
+- **重开链路**：`SessionPanel` 在 `ended` 且非 Shift、非子槽 rerun 时传
+  `resume: true`；`usePty` 先记下旧控制台 sid，再以 `resume_from=<旧 sid>` 新建连接；
+  `_resolve_spec` 查身份表补 `PtySpec.resume`；`_spawn` 在 sid 确定后拼
+  `--resume`。找不到映射就正常新开，不报错。
+- **外包默认**：原生交互主会话默认开（`spec.mode == "interactive"`），headless
+  一次性任务默认关；显式 `outsourcing=1/0` 优先，子槽强制继承父会话。前端
+  `outsourcing` 初始 true，并且**每次都传 1/0**（只传真值时用户关掉后重连会被
+  默认值翻回来）。
+- **实测**：交互 claude 首轮回复 `7391` 后退出，用旧控制台 sid 重开，CLI 进程带
+  `--resume <uuid>` 回到同一段上下文并答出 `7391`；首帧 `resumable=true`。
+  默认值探针：claude 无参 `outsourcing=true`、stub 无参 `outsourcing=false`。
 
 ## 4. 已验证结论（探针实测，样本在 .event-sample/）
 

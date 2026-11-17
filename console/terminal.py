@@ -35,6 +35,7 @@ import signal
 import struct
 import termios
 import time
+import uuid
 from dataclasses import dataclass
 from urllib.parse import parse_qs
 
@@ -125,6 +126,10 @@ class PtySpec:
     prompt: str = ""
     # interactive：原生 TUI（多轮、上下文归 CLI）；headless：-p/exec 一次性任务
     mode: str = "interactive"
+    # 新会话给 CLI 预分配的 session id（resumable 适配器才用）
+    agent_sid: str = ""
+    # 重开时要求 CLI 续上的旧 session id
+    resume: str = ""
 
 
 def _spawn(spec: PtySpec, runtime: sessions.Runtime, sid: str = "") -> None:
@@ -139,9 +144,16 @@ def _spawn(spec: PtySpec, runtime: sessions.Runtime, sid: str = "") -> None:
     env.update(adapter.env())
 
     argv = list(spec.argv)
+    agent_sid = ""
     if adapter.kind == "agent":
+        resumable = adapter.resumable and spec.mode == "interactive"
+        if resumable:
+            # 续会话就用旧 id；新会话预分配一个，让 CLI 从一开始就落在我们
+            # 记录的 session id 上，重开时才能 --resume 回来。
+            agent_sid = spec.resume or spec.agent_sid or str(uuid.uuid4())
         argv = adapter.build_argv(
             spec.argv, prompt=spec.prompt or None, mode=spec.mode, sid=sid,
+            agent_sid=agent_sid, resume=spec.resume if resumable else "",
         )
 
     pid, fd = pty.fork()
@@ -154,6 +166,12 @@ def _spawn(spec: PtySpec, runtime: sessions.Runtime, sid: str = "") -> None:
 
     runtime.pid, runtime.fd = pid, fd
     runtime.mode = spec.mode
+    runtime.agent_sid = agent_sid
+    runtime.resumable = bool(adapter.resumable and spec.mode == "interactive")
+    if agent_sid and sid:
+        sessions.remember_agent(sid, spec.profile, agent_sid)
+        logger.info("CLI 会话身份：%s -> %s（%s）",
+                    sid, agent_sid, "resume" if spec.resume else "new")
     os.set_blocking(fd, False)
     _resize_fd(fd, runtime.cols, runtime.rows)
 
@@ -388,10 +406,18 @@ def _resolve_spec(
     else:
         mode = "interactive" if adapter.interactive else "headless"
     cwd = str(projects.project_path_dict(project)) if project else str(files.root())
+    # 重开续上下文：前端把旧控制台 sid 作为 resume_from 带上来，这里从身份表
+    # 找回同一个 profile 的 CLI session id。找不到就照常新开，不报错。
+    resume = ""
+    resume_from = (query.get("resume_from") or [""])[0].strip()
+    if resume_from and adapter.resumable:
+        known = sessions.recall_agent(resume_from)
+        if known and known[0] == profile:
+            resume = known[1]
     return PtySpec(
         cwd=cwd, argv=argv, profile=profile,
         project_id=project["id"] if project else None,
-        kind=adapter.kind, prompt=prompt, mode=mode,
+        kind=adapter.kind, prompt=prompt, mode=mode, resume=resume,
     ), None
 
 
@@ -478,14 +504,21 @@ async def terminal_ws(scope, receive, send) -> None:
                     rt.depth = parent.runtime.depth + 1
                     # 子槽继承父会话的外包开关：链式外包不该被开关卡在半路
                     rt.outsourcing = parent.runtime.outsourcing
+                else:
+                    # 外包是主打功能：原生交互主会话默认开；headless 一次性任务
+                    # （委派子槽/自动化）默认关。前端显式带 0/1 时以它为准，
+                    # 这样用户关掉开关后重连不会被默认值翻回来。
+                    raw = (query.get("outsourcing") or [""])[0]
+                    if raw == "1":
+                        rt.outsourcing = True
+                    elif raw == "0":
+                        rt.outsourcing = False
+                    else:
+                        rt.outsourcing = spec.mode == "interactive"
                 _spawn(spec, rt, s.sid)
                 if spec.prompt and spec.mode == "headless":
                     # 带初始任务的 headless 会话从第一秒起就在干活，状态条要如实
                     rt.mark_busy("user")
-                # 带初始任务的会话一启动就可能抛委派事件，外包开关必须赶在
-                # 第一行输出之前就位；前端那帧控制消息到达得太晚。
-                if (query.get("outsourcing") or [""])[0] == "1":
-                    rt.outsourcing = True
             except OSError as exc:
                 logger.warning("启动 %s 失败：%s", spec.profile, exc)
                 raise
@@ -510,6 +543,7 @@ async def terminal_ws(scope, receive, send) -> None:
          "parent": runtime.parent_sid or "",
          "label": runtime.label, "depth": runtime.depth,
          "mode": runtime.mode,
+         "resumable": runtime.resumable,
          "busy": runtime.is_busy(), "busy_kind": runtime.busy_kind,
          "outsourcing": runtime.outsourcing}
     )})
